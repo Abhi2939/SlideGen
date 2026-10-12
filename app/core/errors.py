@@ -20,3 +20,15 @@ class StructuredOutputError(SlideGenError):
             f"stage {stage!r} returned invalid structured output after "
             f"{attempts} attempt(s): {detail}"
         )
+
+
+class SlideWriteError(SlideGenError):
+    """A single planned slide could not be generated or validated."""
+
+    def __init__(self, slide_index: int, title: str, detail: str):
+        self.slide_index = slide_index
+        self.title = title
+        self.detail = detail
+        super().__init__(
+            f"failed to write slide {slide_index + 1} ({title!r}): {detail}"
+        )

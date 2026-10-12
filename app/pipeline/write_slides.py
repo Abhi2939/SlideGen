@@ -1,0 +1,172 @@
+"""Write planned slides as typed deck-schema models with bounded parallelism."""
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any
+
+from app.core.deck_schema import (
+    ChartSlide,
+    ClosingSlide,
+    ComparisonSlide,
+    ProcessSlide,
+    QuoteSlide,
+    SectionSlide,
+    Slide,
+    StatSlide,
+    TitleSlide,
+    TwoColumnSlide,
+    BulletsSlide,
+)
+from app.core.errors import SlideWriteError
+from app.llm.structured import StructuredGenerator
+from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact, validate_outline_facts
+
+
+SLIDE_MODELS = {
+    "title": TitleSlide,
+    "section": SectionSlide,
+    "bullets": BulletsSlide,
+    "two_column": TwoColumnSlide,
+    "stat": StatSlide,
+    "process": ProcessSlide,
+    "comparison": ComparisonSlide,
+    "chart": ChartSlide,
+    "quote": QuoteSlide,
+    "closing": ClosingSlide,
+}
+
+WRITE_SYSTEM_PROMPT = """You are the slide-writing stage of a presentation generator.
+Write only the requested slide and return JSON matching its exact schema.
+Keep the planned title and layout unchanged. Use the supplied key points and
+include every fact assigned to this slide. Preserve verbatim facts exactly.
+Do not invent statistics, sources, quotations, names, or user-specific details.
+For numeric visualizations use only supplied values; mark illustrative data as
+illustrative only when the schema supports provenance. Keep content concise,
+readable, and consistent with the requested audience and tone."""
+
+
+def _text_leaves(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [text for item in value.values() for text in _text_leaves(item)]
+    if isinstance(value, (list, tuple)):
+        return [text for item in value for text in _text_leaves(item)]
+    return []
+
+
+def _write_one(
+    prompt: str,
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+    slide_index: int,
+    generator: StructuredGenerator,
+    model: str,
+    *,
+    max_tokens: int | None,
+    semantic_attempts: int,
+) -> Slide:
+    plan = outline.slides[slide_index]
+    output_model = SLIDE_MODELS[plan.layout]
+    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+    assigned_facts: list[RequiredFact] = [
+        facts_by_id[fact_id] for fact_id in plan.required_fact_ids
+    ]
+    request = (
+        f"Write slide {plan.index + 1} of {len(outline.slides)}.\n"
+        f"ORIGINAL USER REQUEST:\n{prompt}\n\n"
+        f"DECK BRIEF:\n{analysis.model_dump_json(indent=2)}\n\n"
+        f"SLIDE PLAN:\n{plan.model_dump_json(indent=2)}\n\n"
+        f"FACTS ASSIGNED TO THIS SLIDE:\n"
+        f"{[fact.model_dump(mode='json') for fact in assigned_facts]}"
+    )
+    correction = ""
+    last_error: ValueError | None = None
+
+    for _ in range(semantic_attempts):
+        slide = generator.generate(
+            output_model,
+            stage="write",
+            model=model,
+            system_prompt=WRITE_SYSTEM_PROMPT,
+            user_prompt=request + correction,
+            temperature=0.3,
+            max_tokens=max_tokens,
+        )
+        try:
+            if slide.layout != plan.layout:
+                raise ValueError(f"generated layout {slide.layout!r} does not match the plan")
+            if slide.title != plan.title:
+                raise ValueError("generated title does not match the planned title")
+            text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
+            missing_verbatim = [
+                fact.id for fact in assigned_facts
+                if fact.verbatim and fact.text not in text_content
+            ]
+            if missing_verbatim:
+                raise ValueError(
+                    f"generated slide omitted verbatim fact IDs: {missing_verbatim}"
+                )
+            return slide
+        except ValueError as exc:
+            last_error = exc
+            correction = (
+                "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
+                f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
+            )
+
+    assert last_error is not None
+    raise ValueError(
+        f"slide failed semantic validation after {semantic_attempts} attempt(s): {last_error}"
+    ) from last_error
+
+
+def write_slides(
+    prompt: str,
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+    generator: StructuredGenerator,
+    model: str,
+    *,
+    max_workers: int = 4,
+    max_tokens: int | None = 2200,
+    semantic_attempts: int = 2,
+) -> list[Slide]:
+    """Write all slides concurrently up to max_workers, preserving outline order."""
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        raise ValueError("prompt must not be empty")
+    if max_workers < 1:
+        raise ValueError("max_workers must be at least 1")
+    if semantic_attempts < 1:
+        raise ValueError("semantic_attempts must be at least 1")
+    if outline.deck_title != analysis.deck_title:
+        raise ValueError("outline deck title does not match the analyzed deck title")
+    validate_outline_facts(analysis, outline)
+
+    results: list[Slide | None] = [None] * len(outline.slides)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(results))) as executor:
+        futures = {
+            executor.submit(
+                _write_one,
+                clean_prompt,
+                analysis,
+                outline,
+                index,
+                generator,
+                model,
+                max_tokens=max_tokens,
+                semantic_attempts=semantic_attempts,
+            ): index
+            for index in range(len(outline.slides))
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            try:
+                results[index] = future.result()
+            except Exception as exc:
+                for pending in futures:
+                    pending.cancel()
+                plan = outline.slides[index]
+                raise SlideWriteError(index, plan.title, str(exc)) from exc
+
+    return [slide for slide in results if slide is not None]
