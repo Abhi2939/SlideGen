@@ -6,6 +6,14 @@ import os
 from dotenv import load_dotenv
 
 
+DEFAULT_MODELS = {
+    "analyze": "openai/gpt-oss-20b",
+    "outline": "openai/gpt-oss-20b",
+    "write": "openai/gpt-oss-120b",
+    "review": "openai/gpt-oss-20b",
+}
+
+
 @dataclass(frozen=True)
 class Settings:
     llm_provider: str
@@ -38,16 +46,18 @@ class Settings:
         )
 
     def model_for(self, stage: str) -> str:
-        specific = {
-            "analyze": self.analysis_model,
-            "outline": self.outline_model,
-            "write": self.writing_model,
-            "review": self.review_model,
+        stage_settings = {
+            "analyze": (self.analysis_model, "SLIDEGEN_ANALYSIS_MODEL"),
+            "outline": (self.outline_model, "SLIDEGEN_OUTLINE_MODEL"),
+            "write": (self.writing_model, "SLIDEGEN_WRITING_MODEL"),
+            "review": (self.review_model, "SLIDEGEN_REVIEW_MODEL"),
         }.get(stage)
-        model = specific or self.default_model
+        if stage_settings is None:
+            raise ValueError(f"Unknown generation stage {stage!r}")
+        specific, env_name = stage_settings
+        model = specific or self.default_model or DEFAULT_MODELS[stage]
         if not model:
             raise ValueError(
-                f"No model configured for stage {stage!r}; set "
-                f"SLIDEGEN_{stage.upper()}_MODEL or SLIDEGEN_MODEL"
+                f"No model configured for stage {stage!r}; set {env_name} or SLIDEGEN_MODEL"
             )
         return model
