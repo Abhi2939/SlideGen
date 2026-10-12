@@ -6,7 +6,7 @@ from pptx.util import Inches
 
 from app.core.deck_schema import Deck
 from app.render.common import add_text, add_title, new_slide
-from app.render.layouts import LAYOUT_RENDERERS
+from app.render.layout import LAYOUT_RENDERERS
 from app.render.theme import BODY_TOP, CONTENT_W, MARGIN_X, SLIDE_H, SLIDE_W, get_theme
 
 log = logging.getLogger(__name__)

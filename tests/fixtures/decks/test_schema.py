@@ -6,7 +6,7 @@ from pydantic import ValidationError
 
 from app.core.deck_schema import Deck
 
-FIXTURES = Path(__file__).parent / "fixtures" / "decks"
+FIXTURES = Path(__file__).parent
 
 
 def _title():

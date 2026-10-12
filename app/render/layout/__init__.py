@@ -1,4 +1,4 @@
-from app.render.layouts import bullets, title
+from . import bullets, title
 
 LAYOUT_RENDERERS = {
     "title": title.render,
