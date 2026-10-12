@@ -1,7 +1,8 @@
 """Write planned slides as typed deck-schema models with bounded parallelism."""
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any
+import json
+from typing import Any, Mapping
 
 from app.core.deck_schema import (
     ChartSlide,
@@ -64,6 +65,7 @@ def _write_one(
     *,
     max_tokens: int | None,
     semantic_attempts: int,
+    repair_instruction: str | None = None,
 ) -> Slide:
     plan = outline.slides[slide_index]
     output_model = SLIDE_MODELS[plan.layout]
@@ -77,8 +79,10 @@ def _write_one(
         f"DECK BRIEF:\n{analysis.model_dump_json(indent=2)}\n\n"
         f"SLIDE PLAN:\n{plan.model_dump_json(indent=2)}\n\n"
         f"FACTS ASSIGNED TO THIS SLIDE:\n"
-        f"{[fact.model_dump(mode='json') for fact in assigned_facts]}"
+        f"{json.dumps([fact.model_dump(mode='json') for fact in assigned_facts], ensure_ascii=False, indent=2)}"
     )
+    if repair_instruction:
+        request += f"\n\nREVIEW REPAIR INSTRUCTIONS:\n{repair_instruction}"
     correction = ""
     last_error: ValueError | None = None
 
@@ -143,12 +147,100 @@ def write_slides(
         raise ValueError("outline deck title does not match the analyzed deck title")
     validate_outline_facts(analysis, outline)
 
-    results: list[Slide | None] = [None] * len(outline.slides)
-    with ThreadPoolExecutor(max_workers=min(max_workers, len(results))) as executor:
+    written = _write_indices(
+        clean_prompt,
+        analysis,
+        outline,
+        range(len(outline.slides)),
+        generator,
+        model,
+        max_workers=max_workers,
+        max_tokens=max_tokens,
+        semantic_attempts=semantic_attempts,
+    )
+    return [written[index] for index in range(len(outline.slides))]
+
+
+def rewrite_slides(
+    prompt: str,
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+    current_slides: list[Slide],
+    slide_indices: list[int],
+    generator: StructuredGenerator,
+    model: str,
+    *,
+    max_workers: int = 4,
+    max_tokens: int | None = 2200,
+    semantic_attempts: int = 2,
+    repair_instructions: Mapping[int, str] | None = None,
+) -> list[Slide]:
+    """Regenerate only selected slides and preserve all other slide objects."""
+    clean_prompt = prompt.strip()
+    if not clean_prompt:
+        raise ValueError("prompt must not be empty")
+    if max_workers < 1:
+        raise ValueError("max_workers must be at least 1")
+    if semantic_attempts < 1:
+        raise ValueError("semantic_attempts must be at least 1")
+    if len(current_slides) != len(outline.slides):
+        raise ValueError("current slide count does not match the outline")
+    if not slide_indices:
+        raise ValueError("at least one slide index is required for rewriting")
+    if len(slide_indices) != len(set(slide_indices)):
+        raise ValueError("slide indices to rewrite must be unique")
+    repair_instructions = repair_instructions or {}
+    unexpected_instructions = set(repair_instructions) - set(slide_indices)
+    if unexpected_instructions:
+        raise ValueError(
+            f"repair instructions reference unselected slides: {sorted(unexpected_instructions)}"
+        )
+    invalid_indices = [
+        index for index in slide_indices if index < 0 or index >= len(outline.slides)
+    ]
+    if invalid_indices:
+        raise ValueError(f"slide indices to rewrite are out of range: {invalid_indices}")
+    if outline.deck_title != analysis.deck_title:
+        raise ValueError("outline deck title does not match the analyzed deck title")
+    validate_outline_facts(analysis, outline)
+
+    written = _write_indices(
+        clean_prompt,
+        analysis,
+        outline,
+        slide_indices,
+        generator,
+        model,
+        max_workers=max_workers,
+        max_tokens=max_tokens,
+        semantic_attempts=semantic_attempts,
+        repair_instructions=repair_instructions,
+    )
+    result = list(current_slides)
+    for index, slide in written.items():
+        result[index] = slide
+    return result
+
+
+def _write_indices(
+    prompt: str,
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+    slide_indices,
+    generator: StructuredGenerator,
+    model: str,
+    *,
+    max_workers: int,
+    max_tokens: int | None,
+    semantic_attempts: int,
+    repair_instructions: Mapping[int, str] | None = None,
+) -> dict[int, Slide]:
+    results: dict[int, Slide] = {}
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(slide_indices))) as executor:
         futures = {
             executor.submit(
                 _write_one,
-                clean_prompt,
+                prompt,
                 analysis,
                 outline,
                 index,
@@ -156,8 +248,9 @@ def write_slides(
                 model,
                 max_tokens=max_tokens,
                 semantic_attempts=semantic_attempts,
+                repair_instruction=(repair_instructions or {}).get(index),
             ): index
-            for index in range(len(outline.slides))
+            for index in slide_indices
         }
         for future in as_completed(futures):
             index = futures[future]
@@ -168,5 +261,4 @@ def write_slides(
                     pending.cancel()
                 plan = outline.slides[index]
                 raise SlideWriteError(index, plan.title, str(exc)) from exc
-
-    return [slide for slide in results if slide is not None]
+    return results

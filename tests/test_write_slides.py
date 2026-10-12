@@ -5,7 +5,7 @@ import pytest
 
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
 from app.pipeline.models import AnalysisOutput, OutlineOutput
-from app.pipeline.write_slides import write_slides
+from app.pipeline.write_slides import rewrite_slides, write_slides
 
 
 class FakeWriter:
@@ -99,4 +99,47 @@ def test_write_slides_rejects_empty_prompt():
     generator = FakeWriter()
     with pytest.raises(ValueError, match="must not be empty"):
         write_slides("  ", analysis, outline, generator, "test-model")
+    assert generator.calls == []
+
+
+def test_rewrite_slides_changes_only_requested_indices():
+    analysis, outline = _inputs()
+    current = [
+        TitleSlide(layout="title", title="Launch plan"),
+        BulletsSlide(
+            layout="bullets",
+            title="Launch date",
+            bullets=[{"text": "Old wording"}, {"text": "Prepare the team"}],
+        ),
+        ClosingSlide(layout="closing", title="Next steps"),
+    ]
+    generator = FakeWriter()
+
+    result = rewrite_slides(
+        "Make a launch deck", analysis, outline, current, [1], generator, "test-model"
+    )
+
+    assert result[0] is current[0]
+    assert result[2] is current[2]
+    assert result[1] is not current[1]
+    assert result[1].bullets[0].text == "Launch is June 1"
+
+
+def test_rewrite_slides_rejects_out_of_range_index_without_model_call():
+    analysis, outline = _inputs()
+    current = [
+        TitleSlide(layout="title", title="Launch plan"),
+        BulletsSlide(
+            layout="bullets",
+            title="Launch date",
+            bullets=[{"text": "Launch is June 1"}, {"text": "Prepare the team"}],
+        ),
+        ClosingSlide(layout="closing", title="Next steps"),
+    ]
+    generator = FakeWriter()
+
+    with pytest.raises(ValueError, match="out of range"):
+        rewrite_slides(
+            "Make a launch deck", analysis, outline, current, [3], generator, "test-model"
+        )
     assert generator.calls == []
