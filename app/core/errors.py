@@ -32,3 +32,14 @@ class SlideWriteError(SlideGenError):
         super().__init__(
             f"failed to write slide {slide_index + 1} ({title!r}): {detail}"
         )
+
+
+class DeckReviewError(SlideGenError):
+    """A deck still has review findings after all repair rounds."""
+
+    def __init__(self, review, repair_rounds: int):
+        self.review = review
+        self.repair_rounds = repair_rounds
+        super().__init__(
+            f"deck review did not pass after {repair_rounds} repair round(s)"
+        )
