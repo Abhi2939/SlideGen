@@ -1,0 +1,100 @@
+{
+  "title": "Blush",
+  "subtitle": "Makeup made only for you",
+  "audience": "Seed investors",
+  "tone": "Confident and warm",
+  "theme": "default",
+  "slides": [
+    {
+      "layout": "title",
+      "title": "Blush",
+      "subtitle": "Makeup made only for you"
+    },
+    {
+      "layout": "bullets",
+      "title": "The problem with shade matching",
+      "bullets": [
+        { "text": "Mass-market ranges cover a fraction of real skin tones" },
+        { "text": "Undertone is hard to judge in store lighting" },
+        { "text": "Wrong shades mean wasted money and returned products" }
+      ]
+    },
+    {
+      "layout": "section",
+      "title": "Our solution",
+      "subtitle": "Custom-blended, matched to you"
+    },
+    {
+      "layout": "process",
+      "title": "How it works",
+      "subtitle": "From skin tone to doorstep",
+      "steps": [
+        { "title": "Share your profile", "description": "Skin tone, undertone and style preferences" },
+        { "title": "We blend", "description": "Foundation, lipstick and skincare made to match" },
+        { "title": "Delivered", "description": "Your formula, ready to use" }
+      ]
+    },
+    {
+      "layout": "two_column",
+      "title": "Why Blush works",
+      "left": {
+        "heading": "For customers",
+        "bullets": [
+          { "text": "A shade that actually matches" },
+          { "text": "One brand for makeup and skincare" }
+        ]
+      },
+      "right": {
+        "heading": "For the business",
+        "bullets": [
+          { "text": "Higher repeat purchase from a saved formula" },
+          { "text": "Fewer returns than standard shades" }
+        ]
+      }
+    },
+    {
+      "layout": "stat",
+      "title": "The opportunity",
+      "stats": [
+        { "value": "3x", "label": "Example repeat-purchase uplift", "provenance": "illustrative" },
+        { "value": "40%", "label": "Example return-rate reduction", "provenance": "illustrative" }
+      ]
+    },
+    {
+      "layout": "chart",
+      "title": "Where the money goes",
+      "chart_type": "doughnut",
+      "categories": ["Product", "Marketing", "Team", "Operations"],
+      "series": [{ "name": "Allocation", "values": [40, 25, 20, 15] }],
+      "unit": "%",
+      "provenance": "illustrative"
+    },
+    {
+      "layout": "comparison",
+      "title": "Blush vs the usual options",
+      "items": [
+        {
+          "name": "Standard brands",
+          "points": ["Fixed shade ranges", "Guesswork at checkout"]
+        },
+        {
+          "name": "Blush",
+          "points": ["Blended to your tone", "No more wrong shades", "Saved for easy reorders"]
+        }
+      ]
+    },
+    {
+      "layout": "quote",
+      "title": "What customers say",
+      "quote": "Finally a foundation that looks like my skin.",
+      "attribution": "Example customer",
+      "provenance": "illustrative"
+    },
+    {
+      "layout": "closing",
+      "title": "Thank you",
+      "subtitle": "Let's make every shade the right one",
+      "contact": "hello@example.com"
+    }
+  ]
+}
