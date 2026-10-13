@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import re
 from typing import Any, Mapping
 
 from app.core.deck_schema import (
@@ -40,13 +41,27 @@ Write only the requested slide and return JSON matching its exact schema.
 Keep the planned title and layout unchanged. Use the supplied key points and
 include every fact assigned to this slide. Preserve verbatim facts exactly.
 Do not invent statistics, sources, quotations, names, capabilities, guarantees,
-or user-specific details. Do not add claims about performance, confidence,
+contact details, email addresses, phone numbers, URLs, or user-specific details.
+Do not add claims about performance, confidence,
 time savings, market demand, or technology unless the request supplies them.
 For sparse product briefs, expand the supplied details with clear organization
-and neutral explanations, not invented evidence or business claims.
+and neutral explanations, not invented evidence or business claims. Do not
+repeat metadata labels such as 'Startup name' in slide copy. Make each bullet
+add a distinct point; do not restate the title, subtitle, or another bullet in
+different words.
 For numeric visualizations use only supplied values; mark illustrative data as
 illustrative only when the schema supports provenance. Keep content concise,
 readable, and consistent with the requested audience and tone."""
+
+_CONTACT_PATTERN = re.compile(
+    r"(?:\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\bhttps?://\S+|\bwww\.\S+)",
+    re.IGNORECASE,
+)
+_METADATA_LABEL_PATTERN = re.compile(
+    r"\b(?:startup\s+name\s*:?[ \t]*[A-Z][\w'-]*|"
+    r"brand(?:\s+name)?\s*:\s*[A-Z][\w'-]*)",
+    re.IGNORECASE,
+)
 
 
 def _text_leaves(value: Any) -> list[str]:
@@ -106,6 +121,21 @@ def _write_one(
             if slide.title != plan.title:
                 raise ValueError("generated title does not match the planned title")
             text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
+            supplied_text = prompt.casefold()
+            invented_contacts = [
+                match.group(0).rstrip(".,;:!?")
+                for match in _CONTACT_PATTERN.finditer(text_content)
+                if match.group(0).rstrip(".,;:!?").casefold() not in supplied_text
+            ]
+            if invented_contacts:
+                raise ValueError(
+                    "generated slide included contact information not supplied in the request: "
+                    f"{invented_contacts}"
+                )
+            if _METADATA_LABEL_PATTERN.search(text_content):
+                raise ValueError(
+                    "generated slide copied a brand metadata label into presentation text"
+                )
             missing_verbatim = [
                 fact.id for fact in assigned_facts
                 if fact.verbatim and fact.text not in text_content

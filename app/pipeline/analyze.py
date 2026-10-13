@@ -13,10 +13,12 @@ citations, or audience details. Never infer an investor pitch, fundraising
 request, market analysis, or business plan unless the user asks for one. When
 the user provides only a brand or product description, treat it as a general
 product introduction for potential customers; leave the audience unspecified
-if that is safer than guessing. Choose a slide count from 3 to 30 that suits
-the request. Return all user facts and product claims that must appear in the
-deck as uniquely identified required_facts, using IDs starting at 0 with no
-gaps. Do not turn a supplied product promise into a broader guarantee."""
+if that is safer than guessing. Treat labels such as 'Startup name' or 'Brand
+name' as metadata: extract and use the value as the brand name, and do not
+copy the label into presentation text. Choose a slide count from 3 to 30 that
+suits the request. Return all user facts and product claims that must appear
+in the deck as uniquely identified required_facts, using IDs starting at 0
+with no gaps. Do not turn a supplied product promise into a broader guarantee."""
 
 
 def analyze_prompt(

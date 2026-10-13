@@ -15,19 +15,26 @@ from app.pipeline.write_slides import rewrite_slides
 
 
 REVIEW_SYSTEM_PROMPT = """You are the quality-review stage of a presentation generator.
-Review the complete deck against the original user request and analyzed brief.
+Review the complete deck primarily against the original user request and its
+required facts. Treat the outline as planning guidance that can contain errors;
+it is not an independent source of facts or requirements. Never ask a writer to
+add an outline point unless it is supported by the original request or required
+facts. Ignore unsupported aspirational outline points such as confidence or
+time-saving claims instead of requiring them in the slides.
 Check for missing required facts, duplicated points, unsupported factual claims
 or statistics, text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
 paraphrases of them, as supported. Flag only material additions that assert
 new capabilities, guarantees, measurable outcomes, market facts, or evidence
-not present in the request. Do not require investor contact details, financials,
-or fundraising content unless the user requested an investor deck. Do not
-mistake an absent optional detail for a missing required fact. For every real
+not present in the request. Treat any email address, phone number, or URL absent
+from the request as unsupported. Do not require contact details, financials,
+or fundraising content unless the user requested them. Do not mistake an absent
+optional detail for a missing required fact. For every real
 issue, identify the affected zero-based slide indices and specify a concise
-repair instruction. Set regenerate_slide_indices to the exact slides that need
-rewriting. Set passed to true only when the deck has no material issues. Do not
-invent facts while reviewing. Return JSON only."""
+repair instruction. When passed is false, include every affected slide in
+regenerate_slide_indices. For each missing_fact_id, include every outline slide
+assigned that fact. Set passed to true only when the deck has no material
+issues. Do not invent facts while reviewing. Return JSON only."""
 
 
 @dataclass(frozen=True)
@@ -153,7 +160,9 @@ def review_deck(
             last_error = exc
             correction = (
                 "\n\nCORRECTION REQUIRED: The prior review failed reference validation: "
-                f"{exc}. Return corrected review JSON with valid fact and slide references."
+                f"{exc}. Return corrected review JSON with valid fact and slide references. "
+                "When passed is false, regenerate_slide_indices must include every slide "
+                "listed in issues and every outline slide assigned a missing_fact_id."
             )
 
     assert last_error is not None

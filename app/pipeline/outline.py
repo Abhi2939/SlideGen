@@ -12,12 +12,19 @@ title, section, bullets, two_column, stat, process, comparison, chart, quote,
 closing. Assign every required fact ID to one or more relevant slides; do not
 omit or invent IDs. Use key_points to guide later slide writing. Choose layouts
 that fit each slide's purpose, avoid repeating points, and do not invent data
-or quotations. Do not add investor contact, traction, market-size, financial,
+or quotations. Do not add contact details, email addresses, phone numbers, or
+URLs unless the user supplied them. Do not add traction, market-size, financial,
 or fundraising slides unless the user explicitly requests an investor deck or
 supplies those details. For a sparse product description, build a concise
 product introduction around the supplied details rather than inventing a
-company story or proof points. Use closing for the final slide when suitable.
-Return JSON only."""
+company story or proof points. Use the extracted brand name as the deck title
+and a supplied slogan as its subtitle when appropriate; do not repeat metadata
+labels as presentation copy. Every key point must be supported by the original
+request or an analyzed required fact. Do not add aspirational outcomes such as
+confidence, savings, or performance unless the user supplied them. Give each
+slide a distinct purpose and avoid assigning the same required fact to multiple
+slides unless necessary for clarity. Use closing for the final slide when
+suitable. Return JSON only."""
 
 
 def create_outline(

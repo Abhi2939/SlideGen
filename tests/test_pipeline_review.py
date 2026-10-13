@@ -120,6 +120,7 @@ def test_review_rejects_missing_repair_target_and_retries():
 
     assert not result.passed
     assert len(generator.calls) == 2
+    assert "regenerate_slide_indices must include every slide" in generator.calls[1][1]["user_prompt"]
 
 
 def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():
@@ -156,7 +157,8 @@ def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():
     stages = [kwargs["stage"] for _, kwargs in generator.calls]
     assert stages == ["review", "write", "review"]
     assert "straightforward" in generator.calls[0][1]["system_prompt"]
-    assert "Do not require investor contact details" in generator.calls[0][1]["system_prompt"]
+    assert "Do not require contact details" in generator.calls[0][1]["system_prompt"]
+    assert "outline as planning guidance that can contain errors" in generator.calls[0][1]["system_prompt"]
     write_call = next(kwargs for _, kwargs in generator.calls if kwargs["stage"] == "write")
     assert "Keep the launch fact and shorten other text." in write_call["user_prompt"]
 

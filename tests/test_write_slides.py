@@ -9,12 +9,14 @@ from app.pipeline.write_slides import rewrite_slides, write_slides
 
 
 class FakeWriter:
-    def __init__(self):
+    def __init__(self, *, invent_contact_once=False):
         self.calls = []
         self.lock = Lock()
         self.active = 0
         self.max_active = 0
         self.bullet_calls = 0
+        self.closing_calls = 0
+        self.invent_contact_once = invent_contact_once
 
     def generate(self, output_model, **kwargs):
         with self.lock:
@@ -26,6 +28,13 @@ class FakeWriter:
                 bullet_call = self.bullet_calls
             else:
                 bullet_call = 0
+            if output_model is ClosingSlide:
+                self.closing_calls += 1
+                contact = (
+                    "info@example.com"
+                    if self.invent_contact_once and self.closing_calls == 1
+                    else None
+                )
         sleep(0.03)
         try:
             if output_model is TitleSlide:
@@ -38,7 +47,7 @@ class FakeWriter:
                     bullets=[{"text": text}, {"text": "Prepare the team"}],
                 )
             if output_model is ClosingSlide:
-                return ClosingSlide(layout="closing", title="Next steps")
+                return ClosingSlide(layout="closing", title="Next steps", contact=contact)
             raise AssertionError(f"unexpected output model: {output_model}")
         finally:
             with self.lock:
@@ -80,6 +89,8 @@ def test_write_slides_preserves_order_and_retries_missing_verbatim_fact():
     assert generator.bullet_calls == 2
     assert all(call[1]["stage"] == "write" for call in generator.calls)
     assert all("Do not add claims about performance" in call[1]["system_prompt"] for call in generator.calls)
+    assert all("repeat metadata labels such as 'Startup name'" in call[1]["system_prompt"] for call in generator.calls)
+    assert all("Make each bullet" in call[1]["system_prompt"] for call in generator.calls)
     assert generator.max_active <= 2
 
 
@@ -124,6 +135,20 @@ def test_rewrite_slides_changes_only_requested_indices():
     assert result[2] is current[2]
     assert result[1] is not current[1]
     assert result[1].bullets[0].text == "Launch is June 1"
+
+
+def test_write_slides_rejects_invented_contact_details_and_retries():
+    analysis, outline = _inputs()
+    generator = FakeWriter(invent_contact_once=True)
+
+    result = write_slides(
+        "Make a launch deck", analysis, outline, generator, "test-model", max_workers=2
+    )
+
+    assert result[2].contact is None
+    assert generator.closing_calls == 2
+    closing_calls = [kwargs for model, kwargs in generator.calls if model is ClosingSlide]
+    assert "contact information not supplied" in closing_calls[1]["user_prompt"]
 
 
 def test_rewrite_slides_rejects_out_of_range_index_without_model_call():

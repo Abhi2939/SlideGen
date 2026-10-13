@@ -59,6 +59,7 @@ def test_analyze_prompt_calls_structured_generator_with_analysis_contract():
     assert kwargs["model"] == "small-model"
     assert "Make a product launch deck." in kwargs["user_prompt"]
     assert "Never infer an investor pitch" in kwargs["system_prompt"]
+    assert "Treat labels such as 'Startup name'" in kwargs["system_prompt"]
 
 
 @pytest.mark.parametrize("prompt", ["", "  "])
@@ -84,7 +85,8 @@ def test_outline_retries_semantic_failure_and_includes_correction():
     assert result.deck_title == "Launch plan"
     assert len(generator.calls) == 2
     assert "omits required fact IDs" in generator.calls[1][1]["user_prompt"]
-    assert "Do not add investor contact" in generator.calls[0][1]["system_prompt"]
+    assert "Do not add contact details" in generator.calls[0][1]["system_prompt"]
+    assert "Every key point must be supported" in generator.calls[0][1]["system_prompt"]
 
 
 def test_outline_fails_after_semantic_retries():
