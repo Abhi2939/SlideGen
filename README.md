@@ -87,6 +87,12 @@ python .\run_deck.py --help
 
 The CLI sends prompts to the configured LLM provider. Generation can fail if the API key is missing or invalid, a selected model is unavailable, the provider returns invalid structured output repeatedly, or the deck does not pass review after the configured repair rounds.
 
+## Prompt handling
+
+SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, or business details. If you want a particular audience, slide count, evidence, or contact information included, provide it in the prompt.
+
+The slide writer also checks generated text for email addresses and URLs that were not supplied, and for copied metadata labels such as `Startup name`. A match triggers a retry; if the slide still contains it, generation fails rather than accepting that text.
+
 ## Run the web app locally
 
 With the virtual environment activated and `.env` configured:
@@ -98,6 +104,8 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 Open <http://127.0.0.1:8000>. Set `SLIDEGEN_ACCESS_CODE` in `.env` to require a code for API requests and downloads. The job database and presentations are written under `SLIDEGEN_DATA_DIR` (default `./data`).
 
 The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves progress from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the health check.
+
+If a job fails, the browser shows a generic error. Check the terminal running Uvicorn for the job's traceback; when final review fails, the log also includes the review findings. The API keeps this detail out of the user-facing error.
 
 ## Deploy
 
@@ -163,8 +171,8 @@ print(output_path)
 ## Pipeline overview
 
 1. **Analyze** extracts the deck title, audience, tone, slide count, constraints, and required facts from the prompt.
-2. **Outline** creates a slide-by-slide plan with a purpose, supported layout, key points, and required-fact references.
-3. **Write** generates typed slide content. Slide calls run concurrently, subject to `max_workers`, and output order follows the outline.
+2. **Outline** creates a slide-by-slide plan with a purpose, supported layout, key points, and required-fact references. During review, the original request and its required facts remain the source of truth; unsupported outline points do not become requirements.
+3. **Write** generates typed slide content. Slide calls run concurrently, subject to `max_workers`, and output order follows the outline. Generated email addresses and URLs must also appear in the original request.
 4. **Review and repair** checks for missing facts, duplicates, unsupported claims, likely overflow, and coherence. It regenerates flagged slides and reviews the deck again up to `max_repair_rounds`.
 5. **Validate and render** validates the final deck against the shared schema and creates the `.pptx`.
 
