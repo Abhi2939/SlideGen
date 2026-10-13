@@ -15,14 +15,19 @@ from app.pipeline.write_slides import rewrite_slides
 
 
 REVIEW_SYSTEM_PROMPT = """You are the quality-review stage of a presentation generator.
-Review the complete deck against the user's request and analyzed brief. Check
-for missing required facts, duplicated points, unsupported claims or statistics,
-text likely to overflow, and coherence across slides. Do not flag a claim as
-unsupported when the user supplied it. For every issue, identify the affected
-zero-based slide indices and specify a concise repair instruction. Set
-regenerate_slide_indices to the exact slides that need rewriting. Set passed
-to true only when the deck has no material issues. Do not invent facts while
-reviewing. Return JSON only."""
+Review the complete deck against the original user request and analyzed brief.
+Check for missing required facts, duplicated points, unsupported factual claims
+or statistics, text likely to overflow, and coherence across slides. Treat the
+user's supplied product details, slogans, and claims, along with straightforward
+paraphrases of them, as supported. Flag only material additions that assert
+new capabilities, guarantees, measurable outcomes, market facts, or evidence
+not present in the request. Do not require investor contact details, financials,
+or fundraising content unless the user requested an investor deck. Do not
+mistake an absent optional detail for a missing required fact. For every real
+issue, identify the affected zero-based slide indices and specify a concise
+repair instruction. Set regenerate_slide_indices to the exact slides that need
+rewriting. Set passed to true only when the deck has no material issues. Do not
+invent facts while reviewing. Return JSON only."""
 
 
 @dataclass(frozen=True)

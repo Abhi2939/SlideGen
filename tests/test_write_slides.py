@@ -79,6 +79,7 @@ def test_write_slides_preserves_order_and_retries_missing_verbatim_fact():
     assert [slide.layout for slide in result] == ["title", "bullets", "closing"]
     assert generator.bullet_calls == 2
     assert all(call[1]["stage"] == "write" for call in generator.calls)
+    assert all("Do not add claims about performance" in call[1]["system_prompt"] for call in generator.calls)
     assert generator.max_active <= 2
 
 

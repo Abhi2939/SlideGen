@@ -6,8 +6,10 @@ import time
 import pytest
 
 from app.core.deck_schema import Deck
+from app.core.errors import DeckReviewError
 from app.jobs.runner import USER_ERROR, JobRunner
 from app.jobs.store import JobStore
+from app.pipeline.models import ReviewOutput
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "decks" / "all_layouts.json"
@@ -69,6 +71,35 @@ def test_job_failure_stores_clean_user_message(tmp_path):
         assert failed.error == USER_ERROR
         assert "private provider detail" not in failed.error
         assert failed.output_path is None
+    finally:
+        runner.close()
+
+
+def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, caplog):
+    store = JobStore(tmp_path)
+    review = ReviewOutput(
+        passed=False,
+        issues=[
+            {
+                "category": "unsupported_claim",
+                "severity": "medium",
+                "detail": "Unsupported AI capability",
+                "slide_indices": [1],
+            }
+        ],
+        regenerate_slide_indices=[1],
+    )
+
+    def fail_review(prompt: str) -> Deck:
+        raise DeckReviewError(review, repair_rounds=2)
+
+    runner = JobRunner(store, generate=fail_review)
+    try:
+        submitted = runner.submit("Make a product deck")
+        failed = wait_for_status(store, submitted.id, "failed")
+        assert failed.error == USER_ERROR
+        assert "Unsupported AI capability" in caplog.text
+        assert submitted.id in caplog.text
     finally:
         runner.close()
 

@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Callable
 
 from app.core.deck_schema import Deck
+from app.core.errors import DeckReviewError
 from app.jobs.store import Job, JobStore
 from app.pipeline.orchestrator import generate_deck
 from app.render.builder import build_deck
@@ -60,12 +61,18 @@ class JobRunner:
             self.build(deck, output_path)
             self.store.mark_done(job_id, output_path)
             log.info("job %s completed", job_id)
-        except Exception:
+        except Exception as exc:
             try:
                 output_path.unlink(missing_ok=True)
             except OSError:
                 log.exception("could not remove partial output for job %s", job_id)
             log.exception("job %s failed during deck generation", job_id)
+            if isinstance(exc, DeckReviewError):
+                log.error(
+                    "job %s final review findings: %s",
+                    job_id,
+                    exc.review.model_dump_json(),
+                )
             try:
                 self.store.mark_failed(job_id, USER_ERROR)
             except Exception:

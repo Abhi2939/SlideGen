@@ -9,9 +9,14 @@ ANALYSIS_SYSTEM_PROMPT = """You are the analysis stage of a presentation generat
 Extract a concise brief for a presentation. Preserve concrete user-provided
 facts, names, dates, quantities, and constraints. Mark a fact verbatim only
 when its exact wording must be retained. Do not invent facts, statistics,
-citations, or audience details. Choose a slide count from 3 to 30 that suits
-the request. Return all user facts that must appear in the deck as uniquely
-identified required_facts, using IDs starting at 0 with no gaps."""
+citations, or audience details. Never infer an investor pitch, fundraising
+request, market analysis, or business plan unless the user asks for one. When
+the user provides only a brand or product description, treat it as a general
+product introduction for potential customers; leave the audience unspecified
+if that is safer than guessing. Choose a slide count from 3 to 30 that suits
+the request. Return all user facts and product claims that must appear in the
+deck as uniquely identified required_facts, using IDs starting at 0 with no
+gaps. Do not turn a supplied product promise into a broader guarantee."""
 
 
 def analyze_prompt(
