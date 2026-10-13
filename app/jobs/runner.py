@@ -42,9 +42,9 @@ class JobRunner:
             thread_name_prefix="slidegen-job",
         )
 
-    def submit(self, prompt: str) -> Job:
+    def submit(self, prompt: str, *, max_active: int | None = None) -> Job:
         self.store.cleanup_expired()
-        job = self.store.create(prompt)
+        job = self.store.create(prompt, max_active=max_active)
         self._executor.submit(self._run, job.id)
         return job
 

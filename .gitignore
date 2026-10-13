@@ -1,4 +1,6 @@
 .env
+.env.*
+!.env.example
 
 venv/
 .venv/
@@ -11,6 +13,7 @@ __pycache__/
 .ruff_cache/
 
 data/
+outputs/
 evals/outputs/
 *.pptx
 *.pdf

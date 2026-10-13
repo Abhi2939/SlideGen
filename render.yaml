@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: slidegen
+    runtime: docker
+    plan: 0.5c-512mb
+    region: singapore
+    numInstances: 1
+    healthCheckPath: /healthz
+    dockerfilePath: ./Dockerfile
+    disk:
+      name: slidegen-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SLIDEGEN_ACCESS_CODE
+        sync: false
+      - key: SLIDEGEN_DATA_DIR
+        value: /var/data
+      - key: SLIDEGEN_MAX_JOBS
+        value: "1"
+      - key: SLIDEGEN_MAX_ACTIVE_JOBS
+        value: "20"
+      - key: SLIDEGEN_RETENTION_HOURS
+        value: "24"
+      - key: SLIDEGEN_LLM_PROVIDER
+        value: groq
+      - key: SLIDEGEN_STRUCTURED_ATTEMPTS
+        value: "2"
+      - key: SLIDEGEN_ANALYSIS_MODEL
+        value: openai/gpt-oss-20b
+      - key: SLIDEGEN_OUTLINE_MODEL
+        value: openai/gpt-oss-20b
+      - key: SLIDEGEN_WRITING_MODEL
+        value: openai/gpt-oss-120b
+      - key: SLIDEGEN_REVIEW_MODEL
+        value: openai/gpt-oss-20b

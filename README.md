@@ -1,6 +1,6 @@
 # SlideGen
 
-SlideGen turns a natural-language prompt into a structured presentation and a PowerPoint (`.pptx`) file. The current runnable entry point is a command-line interface. Generation uses a four-stage LLM pipeline, validates each stage with Pydantic models, renders with `python-pptx`, and reviews generated slides before returning the deck.
+SlideGen turns a natural-language prompt into a structured presentation, reviews the generated content, and renders a downloadable PowerPoint (`.pptx`) file. You can use the command-line interface or the FastAPI web app.
 
 ## Current project scope
 
@@ -9,9 +9,9 @@ SlideGen turns a natural-language prompt into a structured presentation and a Po
 - Write slides concurrently with a configurable worker limit.
 - Review generated content and selectively regenerate slides with findings.
 - Render ten layouts: title, section, bullets, two-column, stat, process, comparison, chart, quote, and closing.
-- Save the result as a `.pptx` file.
+- Save the result as a `.pptx` file or submit an asynchronous web job and download it in the browser.
 
-The FastAPI, job-store, and browser UI modules are not implemented yet. Use the CLI below to generate decks.
+The web app stores jobs and generated files in SQLite and uses a bounded in-process worker pool. See [Deploy](#deploy) for a public service setup.
 
 ## Requirements
 
@@ -87,6 +87,61 @@ python .\run_deck.py --help
 
 The CLI sends prompts to the configured LLM provider. Generation can fail if the API key is missing or invalid, a selected model is unavailable, the provider returns invalid structured output repeatedly, or the deck does not pass review after the configured repair rounds.
 
+## Run the web app locally
+
+With the virtual environment activated and `.env` configured:
+
+```powershell
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+
+Open <http://127.0.0.1:8000>. Set `SLIDEGEN_ACCESS_CODE` in `.env` to require a code for API requests and downloads. The job database and presentations are written under `SLIDEGEN_DATA_DIR` (default `./data`).
+
+The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves progress from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the health check.
+
+## Deploy
+
+The repository includes a `Dockerfile` and a Render Blueprint in `render.yaml`. The Blueprint runs one Docker web service in Singapore, checks `/healthz`, and attaches a 1 GB persistent disk at `/var/data` for SQLite and completed presentations.
+
+### Deploy on Render
+
+1. Push the repository to GitHub and connect it to Render.
+2. In Render, create a **Blueprint** from this repository and review the service settings from `render.yaml`.
+3. Set the required `GROQ_API_KEY` in the service's environment. Set `SLIDEGEN_ACCESS_CODE` to a private code before sharing the URL.
+4. Apply the Blueprint and wait for `/healthz` to pass.
+5. Open the service URL, submit a test prompt, and download the resulting PowerPoint.
+
+The Blueprint uses a paid Render web plan because Render persistent disks are available only to paid web services. The disk is required for the SQLite job store and downloads to survive restarts. Free web services spin down after 15 minutes without inbound traffic and take about a minute to start again; they also have ephemeral storage, so they are unsuitable for this disk-backed setup. See Render's [persistent disk documentation](https://render.com/docs/disks) and [free service limits](https://render.com/docs/free).
+
+### Environment variables
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `GROQ_API_KEY` | Required | Private credential used for generation. |
+| `SLIDEGEN_ACCESS_CODE` | Empty | Optional shared access gate. Set a private value before sharing. |
+| `SLIDEGEN_DATA_DIR` | `./data` | Directory for SQLite and deck files; Render uses `/var/data`. |
+| `SLIDEGEN_MAX_JOBS` | `1` | Concurrent generation workers. |
+| `SLIDEGEN_MAX_ACTIVE_JOBS` | `20` | Maximum queued plus running jobs. |
+| `SLIDEGEN_RETENTION_HOURS` | `24` | Age after which job records and deck files are deleted. |
+| `SLIDEGEN_LLM_PROVIDER` | `groq` | Configured provider name. |
+| `SLIDEGEN_MODEL` | Provider defaults | Optional default model for all pipeline stages. |
+| `SLIDEGEN_ANALYSIS_MODEL` | `openai/gpt-oss-20b` | Optional analysis-stage override. |
+| `SLIDEGEN_OUTLINE_MODEL` | `openai/gpt-oss-20b` | Optional outline-stage override. |
+| `SLIDEGEN_WRITING_MODEL` | `openai/gpt-oss-120b` | Optional writing-stage override. |
+| `SLIDEGEN_REVIEW_MODEL` | `openai/gpt-oss-20b` | Optional review-stage override. |
+| `SLIDEGEN_STRUCTURED_ATTEMPTS` | `2` | Structured-output attempts per pipeline stage. |
+
+Copy `.env.example` for local configuration. It contains placeholders only; never commit `.env` or paste secret values into logs or documentation.
+
+### Runtime limits
+
+- Run a single service instance. The queue is in-process and the SQLite database and files live on one attached disk. The Blueprint sets `numInstances: 1`.
+- The API accepts at most 20 queued or running jobs overall and 10 submissions per client IP per minute by default.
+- Render disks are available on paid web services and attach to one instance. Redeploys with a disk can briefly take the service offline.
+- The default retention window is 24 hours. Increase it only if the persistent disk has enough room for the expected deck volume.
+- On a free web service, idle spin-down adds a cold start and local files are lost on restart. The configured persistent disk requires a paid plan.
+- The access code is a simple shared gate. Send the client the URL and code separately.
+
 ## Use the pipeline from Python
 
 `generate_deck()` returns a validated `Deck` model. Pass it to the renderer to create a PowerPoint:
@@ -125,7 +180,7 @@ Run the test suite from the project root:
 python -m pytest
 ```
 
-The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, and PowerPoint rendering. They use fake LLM responses and do not require a live API key.
+The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow. They use fake LLM responses and do not require a live API key.
 
 ## Visual QA
 
@@ -149,6 +204,10 @@ The `.pptx`, `.pdf`, and PNG outputs are written under `evals/outputs/`. LibreOf
 ```text
 app/
   config.py                 Environment-backed provider and model settings
+  main.py                   FastAPI app factory and server entry point
+  api/                      Request models and job routes
+  jobs/                     SQLite job store and thread-pool runner
+  static/index.html         Browser prompt, progress, and download UI
   core/
     deck_schema.py           Validated deck and slide models
     errors.py                Pipeline and provider errors
@@ -170,6 +229,8 @@ app/
     theme.py                 Theme colors, fonts, and dimensions
     layout/                  Ten slide layout renderers
 run_deck.py                  Command-line entry point
+Dockerfile                   Container entry point for the web service
+render.yaml                  Render Blueprint with persistent disk and health check
 tests/                       Automated test suite and deck fixture
 evals/qa_render.py            Optional PDF and PNG visual QA
 ```

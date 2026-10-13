@@ -30,6 +30,10 @@ class Job:
     updated_at: datetime
 
 
+class JobQueueFullError(Exception):
+    """Raised when the configured number of active jobs has been reached."""
+
+
 class JobStore:
     """Persist job state and generated file paths in a local SQLite database."""
 
@@ -89,16 +93,30 @@ class JobStore:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
-    def create(self, prompt: str) -> Job:
+    def create(self, prompt: str, *, max_active: int | None = None) -> Job:
         now = _timestamp(_utc_now())
         job_id = uuid.uuid4().hex
         with self._lock, self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if max_active is not None:
+                active = connection.execute(
+                    "SELECT COUNT(*) FROM jobs WHERE status IN ('queued', 'running')"
+                ).fetchone()[0]
+                if active >= max_active:
+                    raise JobQueueFullError("The job queue is full. Please try again shortly.")
             connection.execute(
                 "INSERT INTO jobs (id, prompt, status, created_at, updated_at) VALUES (?, ?, 'queued', ?, ?)",
                 (job_id, prompt, now, now),
             )
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)  # type: ignore[return-value]
+
+    def count_active(self) -> int:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status IN ('queued', 'running')"
+            ).fetchone()
+        return int(row[0])
 
     def get(self, job_id: str) -> Job | None:
         with self._lock, self._connect() as connection:
