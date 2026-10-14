@@ -42,6 +42,9 @@ WRITE_SYSTEM_PROMPT = """You are the slide-writing stage of a presentation gener
 Write only the requested slide and return JSON matching its exact schema.
 Keep the planned title and layout unchanged. Use the supplied key points and
 include every fact assigned to this slide. Preserve verbatim facts exactly.
+Use only the facts assigned to this slide; do not repeat another slide's
+assigned facts, even if they appear in the original request. Do not repeat the
+deck subtitle or slogan on this slide unless it is assigned here.
 Do not invent statistics, sources, quotations, names, capabilities, guarantees,
 contact details, email addresses, phone numbers, URLs, or user-specific details.
 Do not add claims about performance, confidence,
@@ -83,6 +86,10 @@ def _text_leaves(value: Any) -> list[str]:
     if isinstance(value, (list, tuple)):
         return [text for item in value for text in _text_leaves(item)]
     return []
+
+
+def _normalized_phrase(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
 
 
 def _restore_verbatim_facts(slide: Slide, missing_facts: list[RequiredFact]) -> Slide:
@@ -164,6 +171,21 @@ def _write_one(
             if slide.title != plan.title:
                 raise ValueError("generated title does not match the planned title")
             text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
+            normalized_content = _normalized_phrase(text_content)
+            repeated_unassigned = [
+                fact.text
+                for fact in analysis.required_facts
+                if fact.verbatim
+                and fact.id not in plan.required_fact_ids
+                and len(re.findall(r"[a-z0-9]+", fact.text.casefold())) >= 3
+                and f" {_normalized_phrase(fact.text)} "
+                in f" {normalized_content} "
+            ]
+            if repeated_unassigned:
+                raise ValueError(
+                    "generated slide repeated verbatim facts assigned to other slides: "
+                    f"{repeated_unassigned}"
+                )
             supplied_text = prompt.casefold()
             invented_contacts = [
                 match.group(0).rstrip(".,;:!?")

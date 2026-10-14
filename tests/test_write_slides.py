@@ -5,7 +5,7 @@ import pytest
 
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
 from app.pipeline.grounding import unsupported_claim_categories
-from app.pipeline.models import AnalysisOutput, OutlineOutput
+from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact
 from app.pipeline.write_slides import (
     rewrite_slides,
     write_slides,
@@ -13,7 +13,13 @@ from app.pipeline.write_slides import (
 
 
 class FakeWriter:
-    def __init__(self, *, invent_contact_once=False, invent_offer_once=False):
+    def __init__(
+        self,
+        *,
+        invent_contact_once=False,
+        invent_offer_once=False,
+        repeat_unassigned_fact_once=False,
+    ):
         self.calls = []
         self.lock = Lock()
         self.active = 0
@@ -22,6 +28,7 @@ class FakeWriter:
         self.closing_calls = 0
         self.invent_contact_once = invent_contact_once
         self.invent_offer_once = invent_offer_once
+        self.repeat_unassigned_fact_once = repeat_unassigned_fact_once
 
     def generate(self, output_model, **kwargs):
         with self.lock:
@@ -32,6 +39,7 @@ class FakeWriter:
                 self.bullet_calls += 1
                 bullet_call = self.bullet_calls
                 invented_offer = self.invent_offer_once and bullet_call == 1
+                repeated_fact = self.repeat_unassigned_fact_once and bullet_call == 1
             else:
                 bullet_call = 0
             if output_model is ClosingSlide:
@@ -47,11 +55,11 @@ class FakeWriter:
                 return TitleSlide(layout="title", title="Launch plan", subtitle="")
             if output_model is BulletsSlide:
                 text = "Launch is June 1" if bullet_call > 1 else "The launch is soon"
-                second_bullet = (
-                    "Visit our website for a free sample kit"
-                    if invented_offer
-                    else "Prepare the team"
-                )
+                second_bullet = "Prepare the team"
+                if invented_offer:
+                    second_bullet = "Visit our website for a free sample kit"
+                elif repeated_fact:
+                    second_bullet = "Makeup made only for YOU."
                 return BulletsSlide(
                     layout="bullets",
                     title="Launch date",
@@ -128,6 +136,38 @@ def test_title_slide_includes_assigned_verbatim_fact_in_subtitle():
     result = write_slides("Make a launch deck", analysis, outline, generator, "test-model")
 
     assert result[0].subtitle == "Launch is June 1"
+
+
+def test_write_slides_retries_when_verbatim_fact_is_repeated_on_wrong_slide():
+    analysis, outline = _inputs()
+    analysis = analysis.model_copy(
+        update={
+            "required_facts": [
+                *analysis.required_facts,
+                RequiredFact(id=1, text="Makeup made only for YOU.", verbatim=True),
+            ]
+        }
+    )
+    plans = list(outline.slides)
+    plans[0] = plans[0].model_copy(update={"required_fact_ids": [1]})
+    outline = outline.model_copy(update={"slides": plans})
+    generator = FakeWriter(repeat_unassigned_fact_once=True)
+
+    result = write_slides(
+        "Make a launch deck. Makeup made only for YOU.",
+        analysis,
+        outline,
+        generator,
+        "test-model",
+    )
+
+    assert generator.bullet_calls == 2
+    assert all(
+        "Makeup made only for YOU." not in bullet.text
+        for bullet in result[1].bullets
+    )
+    bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
+    assert "repeated verbatim facts assigned to other slides" in bullet_calls[1]["user_prompt"]
 
 
 @pytest.mark.parametrize(
