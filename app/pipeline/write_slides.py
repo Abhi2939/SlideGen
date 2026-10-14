@@ -92,6 +92,19 @@ def _normalized_phrase(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
 
 
+def _duplicate_bullet_texts(slide: Slide) -> list[str]:
+    if not isinstance(slide, BulletsSlide):
+        return []
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for bullet in slide.bullets:
+        normalized = _normalized_phrase(bullet.text)
+        if normalized in seen:
+            duplicates.append(bullet.text)
+        seen.add(normalized)
+    return duplicates
+
+
 def _restore_verbatim_facts(slide: Slide, missing_facts: list[RequiredFact]) -> Slide:
     """Place omitted short verbatim facts into visible slide copy when possible."""
     facts = [fact.text for fact in missing_facts]
@@ -170,6 +183,12 @@ def _write_one(
                 raise ValueError(f"generated layout {slide.layout!r} does not match the plan")
             if slide.title != plan.title:
                 raise ValueError("generated title does not match the planned title")
+            duplicate_bullets = _duplicate_bullet_texts(slide)
+            if duplicate_bullets:
+                raise ValueError(
+                    "generated slide contains duplicate bullet points: "
+                    f"{duplicate_bullets}"
+                )
             text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
             normalized_content = _normalized_phrase(text_content)
             repeated_unassigned = [
