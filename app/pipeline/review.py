@@ -2,15 +2,18 @@
 
 from dataclasses import dataclass
 import json
+import re
 
 from app.core.deck_schema import Slide
 from app.llm.structured import StructuredGenerator
 from app.pipeline.models import (
     AnalysisOutput,
     OutlineOutput,
+    ReviewIssue,
     ReviewOutput,
     validate_outline_facts,
 )
+from app.pipeline.grounding import is_supported_paraphrase
 from app.pipeline.write_slides import rewrite_slides
 
 
@@ -110,6 +113,64 @@ def _repair_instructions(
     return {index: "\n".join(parts) for index, parts in instructions.items()}
 
 
+def _filter_grounded_unsupported_claims(
+    review: ReviewOutput,
+    prompt: str,
+    slides: list[Slide],
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+) -> ReviewOutput:
+    """Ignore only quoted unsupported-claim findings proven present and grounded."""
+    dismissed = False
+    remaining: list[ReviewIssue] = []
+    for issue in review.issues:
+        quoted_claims = re.findall(r"['\"“”]([^'\"“”]{8,})['\"“”]", issue.detail)
+        grounded = issue.category == "unsupported_claim" and bool(quoted_claims)
+        if grounded:
+            for claim in quoted_claims:
+                if not is_supported_paraphrase(claim, prompt):
+                    grounded = False
+                    break
+                for index in issue.slide_indices:
+                    if index < 0 or index >= len(slides):
+                        grounded = False
+                        break
+                    slide_text = json.dumps(
+                        slides[index].model_dump(mode="json"), ensure_ascii=False
+                    )
+                    if claim.casefold() not in slide_text.casefold():
+                        grounded = False
+                        break
+                if not grounded:
+                    break
+        if grounded:
+            dismissed = True
+        else:
+            remaining.append(issue)
+
+    if not dismissed:
+        return review
+    if not remaining and not review.missing_fact_ids:
+        return ReviewOutput(passed=True)
+
+    affected = {index for issue in remaining for index in issue.slide_indices}
+    missing_ids = set(review.missing_fact_ids)
+    affected.update(
+        slide.index
+        for slide in outline.slides
+        if missing_ids & set(slide.required_fact_ids)
+    )
+    regenerate_indices = [
+        index for index in review.regenerate_slide_indices if index in affected
+    ]
+    return ReviewOutput(
+        passed=False,
+        issues=remaining,
+        missing_fact_ids=review.missing_fact_ids,
+        regenerate_slide_indices=regenerate_indices,
+    )
+
+
 def review_deck(
     prompt: str,
     analysis: AnalysisOutput,
@@ -152,6 +213,9 @@ def review_deck(
             user_prompt=request + correction,
             temperature=0.1,
             max_tokens=max_tokens,
+        )
+        review = _filter_grounded_unsupported_claims(
+            review, clean_prompt, slides, analysis, outline
         )
         try:
             _validate_review_references(review, analysis, outline)

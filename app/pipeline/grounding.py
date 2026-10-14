@@ -48,6 +48,54 @@ UNSUPPORTED_CLAIM_PATTERNS = {
     ),
 }
 
+_PARAPHRASE_STOP_WORDS = {
+    "a", "an", "and", "are", "as", "be", "by", "for", "from", "in", "is",
+    "it", "of", "on", "or", "that", "the", "this", "to", "with", "your",
+}
+_PARAPHRASE_ALIASES = {
+    "complement": {"match", "matched", "suit", "suits"},
+    "formula": {"blend", "blended", "formulation"},
+    "personalized": {"custom", "tailored"},
+}
+
+
+def _singularize_claim_token(token: str) -> str:
+    if token.endswith("ies") and len(token) > 4:
+        return token[:-3] + "y"
+    if token.endswith("s") and not token.endswith("ss") and len(token) > 4:
+        return token[:-1]
+    return token
+
+
+def is_supported_paraphrase(claim: str, source_text: str) -> bool:
+    """Check a quoted claim against source wording using conservative aliases.
+
+    This is only a backstop for reviewer false positives. It requires every
+    meaningful claim token to appear in the source or have a narrow wording
+    equivalent; it does not replace the unsupported-claim checks.
+    """
+    claim_tokens = {
+        _singularize_claim_token(token)
+        for token in re.findall(r"[a-z0-9]+", claim.casefold())
+        if token not in _PARAPHRASE_STOP_WORDS
+    }
+    source_tokens = set(re.findall(r"[a-z0-9]+", source_text.casefold()))
+    if not claim_tokens:
+        return False
+
+    if re.search(r"\bonly\s+for\s+you\b|\bmade\s+only\s+for\s+you\b", source_text, re.I):
+        source_tokens.update({"personalized", "unique"})
+    if "formula" in claim_tokens and re.search(
+        r"\bcustom[- ]blend(?:ed|ing)?\b", source_text, re.I
+    ):
+        source_tokens.add("formula")
+
+    return all(
+        token in source_tokens
+        or bool(_PARAPHRASE_ALIASES.get(token, set()) & source_tokens)
+        for token in claim_tokens
+    )
+
 
 def unsupported_claim_categories(text: str, source_text: str) -> list[str]:
     """Return common factual claim categories found only in generated text."""

@@ -163,6 +163,73 @@ def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():
     assert "Keep the launch fact and shorten other text." in write_call["user_prompt"]
 
 
+def test_review_ignores_unsupported_claim_finding_for_grounded_paraphrase():
+    analysis, outline, slides = _inputs()
+    source = (
+        "Makeup made only for YOU. Custom-blended foundation, lipstick and skincare "
+        "matched to your skin tone, undertone & style."
+    )
+    claim = "Personalized formulas that complement your unique skin tone, undertone, and style."
+    slides[1] = BulletsSlide(
+        layout="bullets",
+        title="A match made for you",
+        bullets=[{"text": claim}, {"text": "Explore the collection"}],
+    )
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "unsupported_claim",
+                        "severity": "medium",
+                        "detail": f"Slide 1 contains an unsupported claim: '{claim}'",
+                        "slide_indices": [1],
+                        "repair_instruction": "Remove the claim.",
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            )
+        ]
+    )
+
+    result = review_deck(source, analysis, outline, slides, generator, "review-model")
+
+    assert result.passed
+
+
+def test_review_keeps_unsupported_claim_that_adds_a_guarantee():
+    analysis, outline, slides = _inputs()
+    source = "Custom-blended foundation matched to your skin tone and style."
+    claim = "Clinically proven to last 24 hours."
+    slides[1] = BulletsSlide(
+        layout="bullets",
+        title="Long-lasting wear",
+        bullets=[{"text": claim}, {"text": "Explore the collection"}],
+    )
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "unsupported_claim",
+                        "severity": "high",
+                        "detail": f"Slide 1 makes an unsupported claim: '{claim}'",
+                        "slide_indices": [1],
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            )
+        ]
+    )
+
+    result = review_deck(source, analysis, outline, slides, generator, "review-model")
+
+    assert not result.passed
+    assert result.issues[0].category == "unsupported_claim"
+
+
 def test_review_rejects_empty_prompt_without_calling_model():
     analysis, outline, slides = _inputs()
     generator = FakeReviewGenerator([])
