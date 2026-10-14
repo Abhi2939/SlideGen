@@ -40,9 +40,10 @@ def render(prs, data, theme):
         log.warning("bullets slide %r overflows even at %spt", data.title, size)
 
     spare = BODY_H - sum(hs)
-    gap = min(Inches(0.6), max(GAP_M, int(spare * 0.5 / max(n - 1, 1))))
+    gap = min(Inches(1.0), max(GAP_M, int(spare * 0.5 / max(n - 1, 1))))
 
-    y = BODY_TOP
+    used_h = sum(hs) + gap * (n - 1)
+    y = BODY_TOP + max(0, (BODY_H - used_h) // 2)
     for b, h in zip(data.bullets, hs):
         marker_y = y + (fit.line_height(size) - MARKER) // 2
         add_rect(slide, MARGIN_X, marker_y, MARKER, MARKER, theme.accent, MSO_SHAPE.OVAL)

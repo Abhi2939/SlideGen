@@ -62,6 +62,27 @@ def test_analyze_prompt_calls_structured_generator_with_analysis_contract():
     assert "Treat labels such as 'Startup name'" in kwargs["system_prompt"]
 
 
+def test_analyze_short_branded_beauty_brief_keeps_brand_and_exact_facts():
+    generator = FakeGenerator([_analysis()])
+    prompt = (
+        "Startup name blush, Makeup made only for YOU. Custom-blended foundation, "
+        "lipstick and skincare matched to your skin tone, undertone & style. "
+        "No more wrong shades."
+    )
+
+    result = analyze_prompt(prompt, generator, "small-model")
+
+    assert result.deck_title == "Blush"
+    assert result.slide_count == 4
+    assert [fact.text for fact in result.required_facts] == [
+        "Blush",
+        "Makeup made only for YOU.",
+        "Custom-blended foundation, lipstick and skincare matched to your skin tone, undertone & style.",
+        "No more wrong shades.",
+    ]
+    assert all(fact.verbatim for fact in result.required_facts)
+
+
 @pytest.mark.parametrize("prompt", ["", "  "])
 def test_analyze_rejects_empty_prompt_without_calling_model(prompt):
     generator = FakeGenerator([])
@@ -123,6 +144,39 @@ def test_outline_replaces_unsupported_process_points_with_assigned_facts():
     assert process_replacement.layout == "bullets"
     assert process_replacement.title == "Product Details"
     assert process_replacement.key_points == ["Launch is June 1"]
+
+
+def test_outline_uses_compact_branded_beauty_structure_without_more_llm_calls():
+    prompt = (
+        "Startup name blush, Makeup made only for YOU. Custom-blended foundation, "
+        "lipstick and skincare matched to your skin tone, undertone & style. "
+        "No more wrong shades."
+    )
+    analysis = AnalysisOutput(
+        deck_title="Blush",
+        deck_type="branded beauty product introduction",
+        slide_count=4,
+        required_facts=[
+            {"id": 0, "text": "Blush", "verbatim": True},
+            {"id": 1, "text": "Makeup made only for YOU.", "verbatim": True},
+            {
+                "id": 2,
+                "text": "Custom-blended foundation, lipstick and skincare matched to your skin tone, undertone & style.",
+                "verbatim": True,
+            },
+            {"id": 3, "text": "No more wrong shades.", "verbatim": True},
+        ],
+    )
+    generator = FakeGenerator([])
+
+    result = create_outline(prompt, analysis, generator, "small-model")
+
+    assert len(result.slides) == 4
+    assert [slide.layout for slide in result.slides] == [
+        "title", "bullets", "two_column", "closing"
+    ]
+    assert result.slides[0].title == "Blush"
+    assert not generator.calls
 
 
 def test_outline_rejects_empty_prompt_before_model_call():

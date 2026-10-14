@@ -37,11 +37,14 @@ def render(prs, data, theme):
         text_w = card_w - 2 * pad
         add_rect(slide, text_x, top + Inches(0.22), Inches(0.48), Inches(0.06), theme.accent)
         head_h = fit.text_height(item.name, 19, text_w)
+        points_h = sum(fit.text_height(point, size, text_w - Inches(0.22)) for point in item.points)
+        content_h = Inches(0.55) + head_h + Inches(0.2) + points_h + GAP_S * len(item.points)
+        content_top = top + max(Inches(0.2), (card_h - content_h) // 2)
         add_text(
-            slide, text_x, top + Inches(0.42), text_w, max(head_h, Inches(0.32)), item.name,
+            slide, text_x, content_top, text_w, max(head_h, Inches(0.32)), item.name,
             size_pt=19, color=theme.primary, font=theme.font_heading, bold=True,
         )
-        y = top + Inches(0.55) + head_h + Inches(0.2)
+        y = content_top + head_h + Inches(0.2)
         for point in item.points:
             point_h = fit.text_height(point, size, text_w - Inches(0.22))
             marker = Inches(0.1)

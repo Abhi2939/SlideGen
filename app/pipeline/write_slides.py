@@ -59,6 +59,9 @@ shipping, customer behavior, market facts, or outcomes. For example, custom
 blending does not establish in-house blending, AI analysis, algorithmic
 selection, or shipping. When source material is sparse, organize and clearly
 restate its supplied facts across the requested slides without adding claims.
+For a product range and a shared set of matching dimensions, group the products
+and dimensions into separate lists. Do not generate a product-by-dimension
+matrix or imply an individual pairing unless the request states one.
 For numeric visualizations use only supplied values; mark illustrative data as
 illustrative only when the schema supports provenance. Keep content concise,
 readable, and consistent with the requested audience and tone."""

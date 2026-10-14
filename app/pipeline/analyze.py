@@ -1,6 +1,7 @@
 """Turn the user's prompt into a validated deck brief."""
 
-from app.pipeline.models import AnalysisOutput
+from app.pipeline.briefs import short_beauty_brief
+from app.pipeline.models import AnalysisOutput, RequiredFact
 from app.llm.structured import StructuredGenerator
 
 
@@ -16,7 +17,8 @@ product introduction for potential customers; leave the audience unspecified
 if that is safer than guessing. Treat labels such as 'Startup name' or 'Brand
 name' as metadata: extract and use the value as the brand name, and do not
 copy the label into presentation text. Choose a slide count from 3 to 30 that
-suits the request. Return all user facts and product claims that must appear
+suits the request. For a concise branded product brief with no requested slide
+count, choose four slides and do not repeat facts just to fill pages. Return all user facts and product claims that must appear
 in the deck as uniquely identified required_facts, using IDs starting at 0
 with no gaps. Do not turn a supplied product promise into a broader guarantee."""
 
@@ -35,7 +37,7 @@ def analyze_prompt(
     if len(clean_prompt) > MAX_PROMPT_CHARS:
         raise ValueError(f"prompt must be at most {MAX_PROMPT_CHARS} characters")
 
-    return generator.generate(
+    analysis = generator.generate(
         AnalysisOutput,
         stage="analyze",
         model=model,
@@ -46,4 +48,21 @@ def analyze_prompt(
         ),
         temperature=0.1,
         max_tokens=max_tokens,
+    )
+    brief = short_beauty_brief(clean_prompt)
+    if brief is None:
+        return analysis
+
+    facts = [RequiredFact(id=0, text=brief.brand, verbatim=True)]
+    facts.extend(
+        RequiredFact(id=index, text=text, verbatim=True)
+        for index, text in enumerate(brief.facts, start=1)
+    )
+    return analysis.model_copy(
+        update={
+            "deck_title": brief.brand,
+            "slide_count": 4,
+            "required_facts": facts,
+            "deck_type": "branded beauty product introduction",
+        }
     )

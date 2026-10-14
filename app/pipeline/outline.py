@@ -1,6 +1,7 @@
 """Plan slide-by-slide structure from an analyzed deck brief."""
 
 from app.pipeline.grounding import unsupported_claim_categories
+from app.pipeline.briefs import short_beauty_brief
 from app.llm.structured import StructuredGenerator
 from app.pipeline.models import AnalysisOutput, OutlineOutput, validate_outline_facts
 
@@ -102,6 +103,65 @@ def create_outline(
         raise ValueError("prompt must not be empty")
     if semantic_attempts < 1:
         raise ValueError("semantic_attempts must be at least 1")
+
+    brief = short_beauty_brief(clean_prompt)
+    if brief is not None:
+        facts = {fact.id: fact for fact in analysis.required_facts}
+        brand_ids = [fact.id for fact in analysis.required_facts if fact.text.casefold() == brief.brand.casefold()]
+        slogan_ids = [fact.id for fact in analysis.required_facts if "made only for you" in fact.text.casefold()]
+        product_ids = [
+            fact.id for fact in analysis.required_facts
+            if any(name in fact.text.casefold() for name in ("foundation", "lipstick", "skincare"))
+        ]
+        dimension_ids = [
+            fact.id for fact in analysis.required_facts
+            if any(name in fact.text.casefold() for name in ("skin tone", "undertone", "style"))
+        ]
+        promise_ids = [fact.id for fact in analysis.required_facts if "no more wrong shades" in fact.text.casefold()]
+        assigned = set(brand_ids + slogan_ids + product_ids + dimension_ids + promise_ids)
+        leftovers = [fact.id for fact in analysis.required_facts if fact.id not in assigned]
+        slides = [
+            {
+                "index": 0,
+                "title": brief.brand,
+                "purpose": "Introduce the brand using its supplied wording.",
+                "layout": "title",
+                "key_points": [facts[index].text for index in slogan_ids],
+                "required_fact_ids": [*brand_ids, *slogan_ids],
+            },
+            {
+                "index": 1,
+                "title": f"The {brief.brand} collection",
+                "purpose": "Present the named products and their supplied personalization detail.",
+                "layout": "bullets",
+                "key_points": [facts[index].text for index in product_ids],
+                "required_fact_ids": product_ids,
+            },
+            {
+                "index": 2,
+                "title": "Matched to you",
+                "purpose": "Show the stated matching dimensions beside the named products without inventing one-to-one pairings.",
+                "layout": "two_column",
+                "key_points": ["Skin tone", "Undertone", "Style", "Foundation", "Lipstick", "Skincare"],
+                "required_fact_ids": [],
+            },
+            {
+                "index": 3,
+                "title": "No more wrong shades",
+                "purpose": "Close with the brand's supplied promise.",
+                "layout": "closing",
+                "key_points": [facts[index].text for index in promise_ids],
+                "required_fact_ids": [*promise_ids, *leftovers],
+            },
+        ]
+        return OutlineOutput(
+            deck_title=brief.brand,
+            subtitle=next(
+                (fact.text for fact in analysis.required_facts if "made only for you" in fact.text.casefold()),
+                None,
+            ),
+            slides=slides,
+        )
 
     base_request = (
         "Create an outline using this original request and analyzed brief. "

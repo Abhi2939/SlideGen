@@ -35,3 +35,32 @@ def test_fixture_uses_no_placeholder_layouts(tmp_path):
         if shape.has_text_frame
     ]
     assert not any("layout not implemented yet" in text for text in slide_text)
+
+
+def test_blush_brand_theme_renders_editable_cosmetic_art(tmp_path):
+    deck = Deck.model_validate(
+        {
+            "title": "Blush",
+            "theme": "blush",
+            "slides": [
+                {"layout": "title", "title": "Blush", "subtitle": "Makeup made only for YOU."},
+                {
+                    "layout": "bullets",
+                    "title": "The collection",
+                    "bullets": [
+                        {"text": "Custom-blended foundation"},
+                        {"text": "Custom-blended lipstick and skincare"},
+                    ],
+                },
+                {"layout": "closing", "title": "No more wrong shades"},
+            ],
+        }
+    )
+
+    out = build_deck(deck, tmp_path / "blush.pptx", strict=True)
+
+    presentation = Presentation(str(out))
+    assert len(presentation.slides) == 3
+    for slide in (presentation.slides[0], presentation.slides[2]):
+        texts = [shape.text for shape in slide.shapes if shape.has_text_frame]
+        assert {"FOUNDATION", "LIPSTICK", "SKINCARE"} <= set(texts)

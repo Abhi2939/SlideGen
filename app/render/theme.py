@@ -71,7 +71,24 @@ DEFAULT = Theme(
     ),
 )
 
-THEMES = {"default": DEFAULT}
+BLUSH = Theme(
+    name="blush",
+    bg=rgb("FFF9FA"),
+    surface=rgb("F7E8EC"),
+    text=rgb("3E2B32"),
+    muted=rgb("8B6B75"),
+    primary=rgb("542E3B"),
+    accent=rgb("D47B98"),
+    on_primary=rgb("FFFFFF"),
+    chart_colors=(
+        rgb("542E3B"), rgb("D47B98"), rgb("EBC7D1"),
+        rgb("B78A66"), rgb("A9B1A3"), rgb("F1D9C4"),
+    ),
+    font_heading="Georgia",
+    font_body="Aptos",
+)
+
+THEMES = {"default": DEFAULT, "blush": BLUSH}
 
 
 def get_theme(name: str | None) -> Theme:
