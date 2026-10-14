@@ -132,7 +132,5 @@ def test_passed_review_cannot_contain_findings():
     with pytest.raises(ValidationError, match="cannot include findings"):
         ReviewOutput(
             passed=True,
-            issues=[
-                ReviewIssue(category="duplicate", severity="low", detail="Repeated point")
-            ],
+            issues=[ReviewIssue(category="duplicate", severity="low", detail="Repeated point")],
         )

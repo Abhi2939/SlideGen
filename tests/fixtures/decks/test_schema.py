@@ -29,9 +29,7 @@ def _deck(*middle):
     return {"title": "D", "slides": [_title(), *middle, _closing()]}
 
 
-@pytest.mark.parametrize(
-    "path", sorted(FIXTURES.glob("*.json")), ids=lambda p: p.stem
-)
+@pytest.mark.parametrize("path", sorted(FIXTURES.glob("*.json")), ids=lambda p: p.stem)
 def test_fixture_decks_validate(path):
     data = json.loads(path.read_text(encoding="utf-8"))
     Deck.model_validate(data)
@@ -106,12 +104,12 @@ def test_pie_needs_exactly_one_series():
         Deck.model_validate(_deck(bad))
 
 
-@pytest.mark.parametrize(
-    "values", [[-1, 2], [0, 0]]
-)
+@pytest.mark.parametrize("values", [[-1, 2], [0, 0]])
 def test_pie_values_must_be_non_negative_with_positive_total(values):
     with pytest.raises(ValidationError):
-        Deck.model_validate(_deck(_chart(chart_type="pie", series=[{"name": "s", "values": values}])) )
+        Deck.model_validate(
+            _deck(_chart(chart_type="pie", series=[{"name": "s", "values": values}]))
+        )
 
 
 def test_section_slide_requires_visible_subtitle():

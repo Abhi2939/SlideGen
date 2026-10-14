@@ -8,8 +8,16 @@ from app.core.deck_schema import TITLE_MAX
 
 
 LayoutName = Literal[
-    "title", "section", "bullets", "two_column", "stat",
-    "process", "comparison", "chart", "quote", "closing",
+    "title",
+    "section",
+    "bullets",
+    "two_column",
+    "stat",
+    "process",
+    "comparison",
+    "chart",
+    "quote",
+    "closing",
 ]
 
 
@@ -77,15 +85,10 @@ def validate_outline_facts(analysis: AnalysisOutput, outline: OutlineOutput) -> 
         raise ValueError("outline deck title does not match the analyzed deck title")
     if len(outline.slides) != analysis.slide_count:
         raise ValueError(
-            f"outline has {len(outline.slides)} slides; analysis requested "
-            f"{analysis.slide_count}"
+            f"outline has {len(outline.slides)} slides; analysis requested {analysis.slide_count}"
         )
     known_ids = {fact.id for fact in analysis.required_facts}
-    assigned_ids = {
-        fact_id
-        for slide in outline.slides
-        for fact_id in slide.required_fact_ids
-    }
+    assigned_ids = {fact_id for slide in outline.slides for fact_id in slide.required_fact_ids}
     unknown_ids = assigned_ids - known_ids
     if unknown_ids:
         raise ValueError(f"outline references unknown fact IDs: {sorted(unknown_ids)}")

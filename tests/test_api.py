@@ -77,9 +77,9 @@ def test_access_code_protects_job_endpoints_and_leaves_health_public(tmp_path):
     app, _, _ = make_app(tmp_path, access_code="client-secret")
     with TestClient(app) as client:
         assert client.get("/healthz").status_code == 200
-        assert client.post(
-            "/api/jobs", json={"prompt": "Create a protected deck"}
-        ).status_code == 401
+        assert (
+            client.post("/api/jobs", json={"prompt": "Create a protected deck"}).status_code == 401
+        )
         assert client.get("/api/jobs/unknown").status_code == 401
         assert client.get("/api/jobs/unknown/download").status_code == 401
 
@@ -193,6 +193,34 @@ def test_api_enforces_per_ip_submission_rate_limit(tmp_path):
     assert store.count_active() <= 1
 
 
+def test_render_rate_limit_uses_verified_cloudflare_ip_header(tmp_path):
+    app, _, store = make_app(
+        tmp_path,
+        submissions_per_window=1,
+        trust_cloudflare_ip_header=True,
+    )
+    with TestClient(app) as client:
+        first = client.post(
+            "/api/jobs",
+            json={"prompt": "Create the first deck"},
+            headers={
+                "CF-Connecting-IP": "192.0.2.10",
+                "X-Forwarded-For": "198.51.100.10",
+            },
+        )
+        second = client.post(
+            "/api/jobs",
+            json={"prompt": "Create the second deck"},
+            headers={
+                "CF-Connecting-IP": "192.0.2.10",
+                "X-Forwarded-For": "198.51.100.11",
+            },
+        )
+    assert first.status_code == 202
+    assert second.status_code == 429
+    assert store.count_active() <= 1
+
+
 def test_api_rejects_submissions_when_active_job_limit_is_reached(tmp_path):
     started = threading.Event()
     release = threading.Event()
@@ -241,6 +269,7 @@ def test_api_reports_queue_position_and_generation_stage(tmp_path):
             release.set()
             active = wait_for_status(client, second_id, "running")
             assert active.json()["stage"] in {
+                "Starting generation",
                 "Generating presentation",
                 "Rendering PowerPoint",
             }

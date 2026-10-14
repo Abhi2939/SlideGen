@@ -18,6 +18,8 @@ services:
         generateValue: true
       - key: SLIDEGEN_REQUIRE_ACCESS_CODE
         value: "true"
+      - key: SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER
+        value: "true"
       - key: SLIDEGEN_DATA_DIR
         value: /var/data
       - key: SLIDEGEN_MAX_JOBS

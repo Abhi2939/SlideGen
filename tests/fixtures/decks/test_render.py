@@ -43,10 +43,7 @@ def test_rendered_chart_shows_values_and_unit(tmp_path):
     out = build_deck(deck, tmp_path / "charts.pptx", strict=True)
     presentation = Presentation(str(out))
     chart = next(
-        shape.chart
-        for slide in presentation.slides
-        for shape in slide.shapes
-        if shape.has_chart
+        shape.chart for slide in presentation.slides for shape in slide.shapes if shape.has_chart
     )
     assert chart.plots[0].has_data_labels
     assert chart.plots[0].data_labels.show_value

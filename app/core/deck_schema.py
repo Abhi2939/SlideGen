@@ -1,5 +1,5 @@
-from typing import Annotated,Literal,Union
-from pydantic import BaseModel,ConfigDict,Field,model_validator
+from typing import Annotated, Literal, Union
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 TITLE_MAX = 80
 SUBTITLE_MAX = 140
@@ -9,9 +9,10 @@ NOTES_MAX = 600
 
 Provenance = Literal["user", "generated", "illustrative"]
 
+
 class _Model(BaseModel):
-    
     model_config = ConfigDict(extra="ignore", str_strip_whitespace=True)
+
 
 class Bullet(_Model):
     text: str = Field(min_length=1, max_length=BULLET_MAX)
@@ -24,7 +25,7 @@ class Column(_Model):
 
 
 class Stat(_Model):
-    value: str = Field(min_length=1, max_length=16) 
+    value: str = Field(min_length=1, max_length=16)
     label: str = Field(min_length=1, max_length=60)
     context: str | None = Field(default=None, max_length=100)
     provenance: Provenance
@@ -33,6 +34,7 @@ class Stat(_Model):
 class Step(_Model):
     title: str = Field(min_length=1, max_length=40)
     description: str = Field(min_length=1, max_length=120)
+
 
 class ComparisonItem(_Model):
     name: str = Field(min_length=1, max_length=40)
@@ -49,6 +51,7 @@ class ComparisonItem(_Model):
 class Series(_Model):
     name: str = Field(min_length=1, max_length=40)
     values: list[float] = Field(min_length=2, max_length=8)
+
 
 class _SlideBase(_Model):
     title: str = Field(min_length=1, max_length=TITLE_MAX)
@@ -107,17 +110,16 @@ class ChartSlide(_SlideBase):
         for s in self.series:
             if len(s.values) != n:
                 raise ValueError(
-                    f"series '{s.name}' has {len(s.values)} values "
-                    f"but there are {n} categories"
+                    f"series '{s.name}' has {len(s.values)} values but there are {n} categories"
                 )
         if self.chart_type in ("pie", "doughnut") and len(self.series) != 1:
             raise ValueError("pie and doughnut charts need exactly one series")
         if self.chart_type in ("pie", "doughnut") and (
-            any(value < 0 for value in self.series[0].values)
-            or sum(self.series[0].values) <= 0
+            any(value < 0 for value in self.series[0].values) or sum(self.series[0].values) <= 0
         ):
             raise ValueError("pie and doughnut values must be non-negative with a positive total")
         return self
+
 
 class QuoteSlide(_SlideBase):
     layout: Literal["quote"]
@@ -130,6 +132,7 @@ class ClosingSlide(_SlideBase):
     layout: Literal["closing"]
     subtitle: str | None = Field(default=None, max_length=SUBTITLE_MAX)
     contact: str | None = Field(default=None, max_length=100)
+
 
 Slide = Annotated[
     Union[
@@ -149,9 +152,18 @@ Slide = Annotated[
 
 
 LAYOUTS = [
-    "title", "section", "bullets", "two_column", "stat",
-    "process", "comparison", "chart", "quote", "closing",
+    "title",
+    "section",
+    "bullets",
+    "two_column",
+    "stat",
+    "process",
+    "comparison",
+    "chart",
+    "quote",
+    "closing",
 ]
+
 
 class Deck(_Model):
     title: str = Field(min_length=1, max_length=TITLE_MAX)

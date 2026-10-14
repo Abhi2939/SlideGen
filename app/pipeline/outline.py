@@ -51,9 +51,7 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
             "\n".join([plan.title, plan.purpose, *plan.key_points]), prompt
         )
         safe_points = [
-            point
-            for point in plan.key_points
-            if not unsupported_claim_categories(point, prompt)
+            point for point in plan.key_points if not unsupported_claim_categories(point, prompt)
         ]
         changes = bool(unsupported) or len(safe_points) != len(plan.key_points)
         title = plan.title
@@ -134,17 +132,31 @@ def create_outline(
     brief = short_beauty_brief(clean_prompt)
     if brief is not None:
         facts = {fact.id: fact for fact in analysis.required_facts}
-        brand_ids = [fact.id for fact in analysis.required_facts if fact.text.casefold() == brief.brand.casefold()]
-        slogan_ids = [fact.id for fact in analysis.required_facts if "made only for you" in fact.text.casefold()]
+        brand_ids = [
+            fact.id
+            for fact in analysis.required_facts
+            if fact.text.casefold() == brief.brand.casefold()
+        ]
+        slogan_ids = [
+            fact.id
+            for fact in analysis.required_facts
+            if "made only for you" in fact.text.casefold()
+        ]
         product_ids = [
-            fact.id for fact in analysis.required_facts
+            fact.id
+            for fact in analysis.required_facts
             if any(name in fact.text.casefold() for name in ("foundation", "lipstick", "skincare"))
         ]
         dimension_ids = [
-            fact.id for fact in analysis.required_facts
+            fact.id
+            for fact in analysis.required_facts
             if any(name in fact.text.casefold() for name in ("skin tone", "undertone", "style"))
         ]
-        promise_ids = [fact.id for fact in analysis.required_facts if "no more wrong shades" in fact.text.casefold()]
+        promise_ids = [
+            fact.id
+            for fact in analysis.required_facts
+            if "no more wrong shades" in fact.text.casefold()
+        ]
         assigned = set(brand_ids + slogan_ids + product_ids + dimension_ids + promise_ids)
         leftovers = [fact.id for fact in analysis.required_facts if fact.id not in assigned]
         slides = [
@@ -169,7 +181,14 @@ def create_outline(
                 "title": "Matched to you",
                 "purpose": "Show the stated matching dimensions beside the named products without inventing one-to-one pairings.",
                 "layout": "two_column",
-                "key_points": ["Skin tone", "Undertone", "Style", "Foundation", "Lipstick", "Skincare"],
+                "key_points": [
+                    "Skin tone",
+                    "Undertone",
+                    "Style",
+                    "Foundation",
+                    "Lipstick",
+                    "Skincare",
+                ],
                 "required_fact_ids": [],
             },
             {
@@ -184,7 +203,11 @@ def create_outline(
         return OutlineOutput(
             deck_title=brief.brand,
             subtitle=next(
-                (fact.text for fact in analysis.required_facts if "made only for you" in fact.text.casefold()),
+                (
+                    fact.text
+                    for fact in analysis.required_facts
+                    if "made only for you" in fact.text.casefold()
+                ),
                 None,
             ),
             slides=slides,

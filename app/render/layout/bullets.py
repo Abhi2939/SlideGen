@@ -51,15 +51,29 @@ def render(prs, data, theme):
         tx = MARGIN_X + MARKER_COL
         th = fit.text_height(b.text, size, text_w)
         add_text(
-            slide, tx, y, text_w, th, b.text,
-            size_pt=size, color=theme.text, font=theme.font_body,
+            slide,
+            tx,
+            y,
+            text_w,
+            th,
+            b.text,
+            size_pt=size,
+            color=theme.text,
+            font=theme.font_body,
         )
         if b.detail:
             dsize = size - DETAIL_DELTA
             dy = y + th + GAP_S // 2
             add_text(
-                slide, tx, dy, text_w, fit.text_height(b.detail, dsize, text_w),
-                b.detail, size_pt=dsize, color=theme.muted, font=theme.font_body,
+                slide,
+                tx,
+                dy,
+                text_w,
+                fit.text_height(b.detail, dsize, text_w),
+                b.detail,
+                size_pt=dsize,
+                color=theme.muted,
+                font=theme.font_body,
             )
         y += h + gap
     return slide

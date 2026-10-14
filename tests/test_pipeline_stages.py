@@ -124,9 +124,7 @@ def test_outline_fails_after_semantic_retries():
 
 def test_outline_requires_two_visual_slides_when_prompt_requests_charts():
     with pytest.raises(ValueError, match="asks for a chart slide"):
-        _validate_requested_layouts(
-            "Create a deck and include charts and figures", _outline()
-        )
+        _validate_requested_layouts("Create a deck and include charts and figures", _outline())
     with pytest.raises(ValueError, match="at least two visual slides"):
         _validate_requested_layouts("Create a deck with figures", _outline())
 
@@ -242,7 +240,10 @@ def test_outline_uses_compact_branded_beauty_structure_without_more_llm_calls():
 
     assert len(result.slides) == 4
     assert [slide.layout for slide in result.slides] == [
-        "title", "bullets", "two_column", "closing"
+        "title",
+        "bullets",
+        "two_column",
+        "closing",
     ]
     assert result.slides[0].title == "Blush"
     assert not generator.calls

@@ -97,7 +97,12 @@ def test_orchestrator_runs_all_stages_and_returns_validated_deck():
     assert deck.subtitle == "A short plan"
     assert len(deck.slides) == 3
     assert [kwargs["stage"] for _, kwargs in generator.calls] == [
-        "analyze", "outline", "write", "write", "write", "review"
+        "analyze",
+        "outline",
+        "write",
+        "write",
+        "write",
+        "review",
     ]
     assert [kwargs["model"] for _, kwargs in generator.calls] == [
         "analysis-model",

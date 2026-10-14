@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 from pathlib import Path
 import threading
 import time
@@ -48,6 +49,12 @@ class _FixedWindowLimiter:
 
 
 def _client_address(request: Request) -> str:
+    if request.app.state.trust_cloudflare_ip_header:
+        forwarded_client = request.headers.get("CF-Connecting-IP", "").strip()
+        try:
+            return ipaddress.ip_address(forwarded_client).compressed
+        except ValueError:
+            return "unverified-proxy-client"
     if request.client is None:
         return "unknown"
     return request.client.host

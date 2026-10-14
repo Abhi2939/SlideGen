@@ -20,25 +20,39 @@ def render(prs, data, theme):
     title_h = fit.text_height(data.title, title_size, title_w)
     subtitle_size = fit.choose_size(
         SUBTITLE_SIZES,
-        lambda size: not data.subtitle
-        or fit.text_height(data.subtitle, size, title_w) <= Inches(1.0),
+        lambda size: (
+            not data.subtitle or fit.text_height(data.subtitle, size, title_w) <= Inches(1.0)
+        ),
     )
-    subtitle_h = (
-        fit.text_height(data.subtitle, subtitle_size, title_w) if data.subtitle else 0
-    )
+    subtitle_h = fit.text_height(data.subtitle, subtitle_size, title_w) if data.subtitle else 0
     block_h = title_h + (GAP_M + subtitle_h if data.subtitle else 0)
     top = (SLIDE_H - block_h) // 2
 
     add_rect(slide, title_x, top - Inches(0.34), Inches(0.85), Inches(0.07), theme.accent)
     add_text(
-        slide, title_x, top, title_w, title_h, data.title,
-        size_pt=title_size, color=theme.on_primary,
-        font=theme.font_heading, bold=True, align=PP_ALIGN.CENTER,
+        slide,
+        title_x,
+        top,
+        title_w,
+        title_h,
+        data.title,
+        size_pt=title_size,
+        color=theme.on_primary,
+        font=theme.font_heading,
+        bold=True,
+        align=PP_ALIGN.CENTER,
     )
     if data.subtitle:
         add_text(
-            slide, title_x, top + title_h + GAP_M, title_w, subtitle_h, data.subtitle,
-            size_pt=subtitle_size, color=theme.surface,
-            font=theme.font_body, align=PP_ALIGN.CENTER,
+            slide,
+            title_x,
+            top + title_h + GAP_M,
+            title_w,
+            subtitle_h,
+            data.subtitle,
+            size_pt=subtitle_size,
+            color=theme.surface,
+            font=theme.font_body,
+            align=PP_ALIGN.CENTER,
         )
     return slide

@@ -1,7 +1,7 @@
 import json
 
 import pytest
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel
 
 from app.core.errors import StructuredOutputError
 from app.llm.client import LLMClient
@@ -81,7 +81,9 @@ def test_empty_structured_provider_response_is_retried():
 
 
 def test_provider_failure_is_not_retried_by_structured_output_loop():
-    provider = FakeProvider([RuntimeError("rate limit; retry after 2 seconds"), '{"title":"Ready"}'])
+    provider = FakeProvider(
+        [RuntimeError("rate limit; retry after 2 seconds"), '{"title":"Ready"}']
+    )
     generator = StructuredGenerator(LLMClient(provider), max_attempts=2)
 
     with pytest.raises(StructuredOutputError) as exc_info:

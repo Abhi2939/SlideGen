@@ -141,7 +141,10 @@ def test_startup_recovery_marks_interrupted_jobs_failed(tmp_path):
     recovered = store_after_restart.get(queued.id)
     assert recovered is not None
     assert recovered.status == "failed"
-    assert recovered.error == "Server restarted while this job was waiting or running. Please submit it again."
+    assert (
+        recovered.error
+        == "Server restarted while this job was waiting or running. Please submit it again."
+    )
     assert recovered.output_path is None
 
 
@@ -154,7 +157,10 @@ def test_startup_recovery_marks_queued_jobs_failed(tmp_path):
     recovered = store_after_restart.get(queued.id)
     assert recovered is not None
     assert recovered.status == "failed"
-    assert recovered.error == "Server restarted while this job was waiting or running. Please submit it again."
+    assert (
+        recovered.error
+        == "Server restarted while this job was waiting or running. Please submit it again."
+    )
     assert store_after_restart.count_active() == 0
 
 

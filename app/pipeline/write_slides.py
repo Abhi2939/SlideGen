@@ -95,19 +95,43 @@ _COPY_DIRECTIVE_PREFIX = re.compile(
     re.IGNORECASE,
 )
 _INSTRUCTION_STOP_WORDS = {
-    "a", "an", "and", "as", "at", "for", "from", "in", "it", "my",
-    "of", "on", "our", "the", "this", "to", "with", "your",
+    "a",
+    "an",
+    "and",
+    "as",
+    "at",
+    "for",
+    "from",
+    "in",
+    "it",
+    "my",
+    "of",
+    "on",
+    "our",
+    "the",
+    "this",
+    "to",
+    "with",
+    "your",
 }
 _INSTRUCTION_ALIASES = {
-    "make": "create", "generate": "create", "build": "create", "prepare": "create",
-    "write": "create", "produce": "create", "presentation": "deck", "ppt": "deck",
-    "pptx": "deck", "slides": "slide",
+    "make": "create",
+    "generate": "create",
+    "build": "create",
+    "prepare": "create",
+    "write": "create",
+    "produce": "create",
+    "presentation": "deck",
+    "ppt": "deck",
+    "pptx": "deck",
+    "slides": "slide",
 }
 
 
 def _instruction_tokens(text: str) -> set[str]:
     tokens = {
-        token for token in re.findall(r"[a-z0-9]+", text.casefold())
+        token
+        for token in re.findall(r"[a-z0-9]+", text.casefold())
         if token not in _INSTRUCTION_STOP_WORDS
     }
     return {_INSTRUCTION_ALIASES.get(token, token) for token in tokens}
@@ -239,8 +263,7 @@ def _write_one(
             duplicate_bullets = _duplicate_bullet_texts(slide)
             if duplicate_bullets:
                 raise ValueError(
-                    "generated slide contains duplicate bullet points: "
-                    f"{duplicate_bullets}"
+                    f"generated slide contains duplicate bullet points: {duplicate_bullets}"
                 )
             text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
             slide_data = slide.model_dump(mode="json")
@@ -264,8 +287,7 @@ def _write_one(
                 if fact.verbatim
                 and fact.id not in plan.required_fact_ids
                 and len(re.findall(r"[a-z0-9]+", fact.text.casefold())) >= 3
-                and f" {_normalized_phrase(fact.text)} "
-                in f" {normalized_content} "
+                and f" {_normalized_phrase(fact.text)} " in f" {normalized_content} "
             ]
             if repeated_unassigned:
                 raise ValueError(
@@ -294,14 +316,13 @@ def _write_one(
                     f"{', '.join(unsupported_claims)}"
                 )
             missing_verbatim = [
-                fact.id for fact in assigned_facts
+                fact.id
+                for fact in assigned_facts
                 if fact.verbatim and fact.text not in text_content
             ]
             if missing_verbatim:
                 missing_facts = [
-                    fact
-                    for fact in assigned_facts
-                    if fact.verbatim and fact.id in missing_verbatim
+                    fact for fact in assigned_facts if fact.verbatim and fact.id in missing_verbatim
                 ]
                 slide = _restore_verbatim_facts(slide, missing_facts)
                 text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
@@ -309,9 +330,7 @@ def _write_one(
                     fact.id for fact in missing_facts if fact.text not in text_content
                 ]
             if missing_verbatim:
-                raise ValueError(
-                    f"generated slide omitted verbatim fact IDs: {missing_verbatim}"
-                )
+                raise ValueError(f"generated slide omitted verbatim fact IDs: {missing_verbatim}")
             return slide
         except ValueError as exc:
             last_error = exc

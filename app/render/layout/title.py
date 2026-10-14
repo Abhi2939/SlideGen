@@ -15,9 +15,7 @@ def render(prs, data, theme):
     w = int(CONTENT_W * (0.53 if is_blush else 0.8))
     x = Inches(0.9) if is_blush else MARGIN_X
 
-    size = fit.choose_size(
-        TITLE_SIZES, lambda s: fit.text_height(data.title, s, w) <= Inches(2.6)
-    )
+    size = fit.choose_size(TITLE_SIZES, lambda s: fit.text_height(data.title, s, w) <= Inches(2.6))
     th = fit.text_height(data.title, size, w)
     sh = fit.text_height(data.subtitle, SUBTITLE_SIZE, w) if data.subtitle else 0
     block_h = th + ((GAP_M + sh) if data.subtitle else 0)
@@ -25,13 +23,28 @@ def render(prs, data, theme):
 
     add_rect(slide, x, top - Inches(0.4), Inches(1.0), Inches(0.08), theme.accent)
     add_text(
-        slide, x, top, w, th, data.title,
-        size_pt=size, color=theme.on_primary, font=theme.font_heading, bold=True,
+        slide,
+        x,
+        top,
+        w,
+        th,
+        data.title,
+        size_pt=size,
+        color=theme.on_primary,
+        font=theme.font_heading,
+        bold=True,
     )
     if data.subtitle:
         add_text(
-            slide, x, top + th + GAP_M, w, sh, data.subtitle,
-            size_pt=SUBTITLE_SIZE, color=theme.surface, font=theme.font_body,
+            slide,
+            x,
+            top + th + GAP_M,
+            w,
+            sh,
+            data.subtitle,
+            size_pt=SUBTITLE_SIZE,
+            color=theme.surface,
+            font=theme.font_body,
         )
     if is_blush:
         add_blush_product_art(slide, theme, Inches(8.45), Inches(1.55), 1.0)

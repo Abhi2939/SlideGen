@@ -112,18 +112,32 @@ def test_write_slides_preserves_order_and_retries_missing_verbatim_fact():
     analysis, outline = _inputs()
     generator = FakeWriter()
 
-    result = write_slides("Make a launch deck", analysis, outline, generator, "test-model", max_workers=2)
+    result = write_slides(
+        "Make a launch deck", analysis, outline, generator, "test-model", max_workers=2
+    )
 
     assert [slide.title for slide in result] == ["Launch plan", "Launch date", "Next steps"]
     assert [slide.layout for slide in result] == ["title", "bullets", "closing"]
     assert generator.bullet_calls == 1
     assert any(bullet.text == "Launch is June 1" for bullet in result[1].bullets)
     assert all(call[1]["stage"] == "write" for call in generator.calls)
-    assert all("Do not add claims about performance" in call[1]["system_prompt"] for call in generator.calls)
-    assert all("repeat metadata labels such as 'Startup name'" in call[1]["system_prompt"] for call in generator.calls)
+    assert all(
+        "Do not add claims about performance" in call[1]["system_prompt"]
+        for call in generator.calls
+    )
+    assert all(
+        "repeat metadata labels such as 'Startup name'" in call[1]["system_prompt"]
+        for call in generator.calls
+    )
     assert all("Make each bullet" in call[1]["system_prompt"] for call in generator.calls)
-    assert all("organizational guidance, not a source of facts" in call[1]["system_prompt"] for call in generator.calls)
-    assert all("does not establish in-house blending" in call[1]["system_prompt"] for call in generator.calls)
+    assert all(
+        "organizational guidance, not a source of facts" in call[1]["system_prompt"]
+        for call in generator.calls
+    )
+    assert all(
+        "does not establish in-house blending" in call[1]["system_prompt"]
+        for call in generator.calls
+    )
     assert all(call[1]["max_tokens"] == 1600 for call in generator.calls)
     assert generator.max_active <= 2
 
@@ -173,10 +187,7 @@ def test_write_slides_retries_when_verbatim_fact_is_repeated_on_wrong_slide():
     )
 
     assert generator.bullet_calls == 2
-    assert all(
-        "Makeup made only for YOU." not in bullet.text
-        for bullet in result[1].bullets
-    )
+    assert all("Makeup made only for YOU." not in bullet.text for bullet in result[1].bullets)
     bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
     assert "repeated verbatim facts assigned to other slides" in bullet_calls[1]["user_prompt"]
 
@@ -196,7 +207,9 @@ def test_write_slides_retries_duplicate_bullet_points():
 def test_write_slides_retries_when_copy_echoes_presentation_instructions():
     analysis, outline = _inputs()
     generator = FakeWriter(echo_instruction_once=True)
-    prompt = "Generate a 6-slide PowerPoint for my electronics company and include charts and figures."
+    prompt = (
+        "Generate a 6-slide PowerPoint for my electronics company and include charts and figures."
+    )
 
     result = write_slides(prompt, analysis, outline, generator, "test-model")
 

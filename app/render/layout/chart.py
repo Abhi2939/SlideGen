@@ -25,8 +25,10 @@ def render(prs, data, theme):
 
     chart = slide.shapes.add_chart(
         CHART_TYPES[data.chart_type],
-        MARGIN_X + Inches(0.1), BODY_TOP,
-        CONTENT_W - Inches(0.2), chart_h,
+        MARGIN_X + Inches(0.1),
+        BODY_TOP,
+        CONTENT_W - Inches(0.2),
+        chart_h,
         chart_data,
     ).chart
     chart.has_title = False
@@ -76,7 +78,14 @@ def render(prs, data, theme):
     label = "  ·  ".join(part for part in (caption, provenance) if part)
     if label:
         add_text(
-            slide, MARGIN_X, BODY_TOP + chart_h + Inches(0.04), CONTENT_W, caption_h,
-            label, size_pt=11, color=theme.muted, font=theme.font_body,
+            slide,
+            MARGIN_X,
+            BODY_TOP + chart_h + Inches(0.04),
+            CONTENT_W,
+            caption_h,
+            label,
+            size_pt=11,
+            color=theme.muted,
+            font=theme.font_body,
         )
     return slide

@@ -27,25 +27,25 @@ def rgb(hex_str: str) -> RGBColor:
 
 @dataclass(frozen=True)
 class TypeScale:
-    display: Pt = Pt(44)   
-    title: Pt = Pt(32)     
+    display: Pt = Pt(44)
+    title: Pt = Pt(32)
     subtitle: Pt = Pt(20)
     body: Pt = Pt(20)
     small: Pt = Pt(16)
     caption: Pt = Pt(12)
-    stat: Pt = Pt(54)      
+    stat: Pt = Pt(54)
 
 
 @dataclass(frozen=True)
 class Theme:
     name: str
-    bg: RGBColor            
-    surface: RGBColor       
+    bg: RGBColor
+    surface: RGBColor
     text: RGBColor
-    muted: RGBColor         
-    primary: RGBColor       
-    accent: RGBColor        
-    on_primary: RGBColor    
+    muted: RGBColor
+    primary: RGBColor
+    accent: RGBColor
+    on_primary: RGBColor
     chart_colors: tuple
     font_heading: str = "Calibri"
     font_body: str = "Calibri"
@@ -81,8 +81,12 @@ BLUSH = Theme(
     accent=rgb("D47B98"),
     on_primary=rgb("FFFFFF"),
     chart_colors=(
-        rgb("542E3B"), rgb("D47B98"), rgb("EBC7D1"),
-        rgb("B78A66"), rgb("A9B1A3"), rgb("F1D9C4"),
+        rgb("542E3B"),
+        rgb("D47B98"),
+        rgb("EBC7D1"),
+        rgb("B78A66"),
+        rgb("A9B1A3"),
+        rgb("F1D9C4"),
     ),
     font_heading="Georgia",
     font_body="Aptos",

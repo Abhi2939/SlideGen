@@ -27,15 +27,30 @@ def render(prs, data, theme):
 
     add_rect(slide, x, top, Inches(0.65), Inches(0.06), theme.accent)
     add_text(
-        slide, x, top + Inches(0.2), w, qh, data.quote,
-        size_pt=size, color=theme.primary, font=theme.font_heading,
-        bold=True, align=PP_ALIGN.CENTER,
+        slide,
+        x,
+        top + Inches(0.2),
+        w,
+        qh,
+        data.quote,
+        size_pt=size,
+        color=theme.primary,
+        font=theme.font_heading,
+        bold=True,
+        align=PP_ALIGN.CENTER,
     )
     y = top + Inches(0.2) + qh + Inches(0.14)
     if attribution:
         add_text(
-            slide, x, y, w, attribution_h, attribution,
-            size_pt=14, color=theme.muted, font=theme.font_body,
+            slide,
+            x,
+            y,
+            w,
+            attribution_h,
+            attribution,
+            size_pt=14,
+            color=theme.muted,
+            font=theme.font_body,
             align=PP_ALIGN.CENTER,
         )
         y += attribution_h + Inches(0.18)
@@ -43,8 +58,16 @@ def render(prs, data, theme):
     tag_x = x + (w - tag_w) // 2
     add_rect(slide, tag_x, y, tag_w, tag_h, theme.surface)
     add_text(
-        slide, tag_x, y + Inches(0.015), tag_w, Inches(0.25), data.provenance.upper(),
-        size_pt=9, color=theme.muted, font=theme.font_body,
-        bold=True, align=PP_ALIGN.CENTER,
+        slide,
+        tag_x,
+        y + Inches(0.015),
+        tag_w,
+        Inches(0.25),
+        data.provenance.upper(),
+        size_pt=9,
+        color=theme.muted,
+        font=theme.font_body,
+        bold=True,
+        align=PP_ALIGN.CENTER,
     )
     return slide

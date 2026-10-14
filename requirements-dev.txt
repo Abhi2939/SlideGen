@@ -1,0 +1,9 @@
+-r requirements.txt
+
+# Test and lint dependencies
+iniconfig==2.3.1
+packaging==26.3
+pluggy==1.6.0
+pygments==2.21.0
+pytest==9.1.1
+ruff==0.17.0

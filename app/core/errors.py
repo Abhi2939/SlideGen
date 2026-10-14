@@ -29,9 +29,7 @@ class SlideWriteError(SlideGenError):
         self.slide_index = slide_index
         self.title = title
         self.detail = detail
-        super().__init__(
-            f"failed to write slide {slide_index + 1} ({title!r}): {detail}"
-        )
+        super().__init__(f"failed to write slide {slide_index + 1} ({title!r}): {detail}")
 
 
 class DeckReviewError(SlideGenError):
@@ -40,6 +38,4 @@ class DeckReviewError(SlideGenError):
     def __init__(self, review, repair_rounds: int):
         self.review = review
         self.repair_rounds = repair_rounds
-        super().__init__(
-            f"deck review did not pass after {repair_rounds} repair round(s)"
-        )
+        super().__init__(f"deck review did not pass after {repair_rounds} repair round(s)")

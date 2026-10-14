@@ -16,9 +16,15 @@ def _fallback(prs, data, theme):
     slide = new_slide(prs, theme)
     add_title(slide, theme, data.title)
     add_text(
-        slide, MARGIN_X, BODY_TOP, CONTENT_W, Inches(0.5),
+        slide,
+        MARGIN_X,
+        BODY_TOP,
+        CONTENT_W,
+        Inches(0.5),
         f"[{data.layout} layout not implemented yet]",
-        size_pt=16, color=theme.muted, font=theme.font_body,
+        size_pt=16,
+        color=theme.muted,
+        font=theme.font_body,
     )
     return slide
 

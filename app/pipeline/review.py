@@ -59,9 +59,7 @@ def _validate_review_references(
     if unknown_facts:
         raise ValueError(f"review references unknown fact IDs: {sorted(unknown_facts)}")
 
-    issue_indices = {
-        index for issue in review.issues for index in issue.slide_indices
-    }
+    issue_indices = {index for issue in review.issues for index in issue.slide_indices}
     all_indices = issue_indices | set(review.regenerate_slide_indices)
     invalid_indices = sorted(index for index in all_indices if index < 0 or index >= slide_count)
     if invalid_indices:
@@ -157,13 +155,9 @@ def _filter_grounded_unsupported_claims(
     affected = {index for issue in remaining for index in issue.slide_indices}
     missing_ids = set(review.missing_fact_ids)
     affected.update(
-        slide.index
-        for slide in outline.slides
-        if missing_ids & set(slide.required_fact_ids)
+        slide.index for slide in outline.slides if missing_ids & set(slide.required_fact_ids)
     )
-    regenerate_indices = [
-        index for index in review.regenerate_slide_indices if index in affected
-    ]
+    regenerate_indices = [index for index in review.regenerate_slide_indices if index in affected]
     return ReviewOutput(
         passed=False,
         issues=remaining,

@@ -49,8 +49,27 @@ UNSUPPORTED_CLAIM_PATTERNS = {
 }
 
 _PARAPHRASE_STOP_WORDS = {
-    "a", "an", "and", "are", "as", "be", "by", "for", "from", "in", "is",
-    "it", "of", "on", "or", "that", "the", "this", "to", "with", "your",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "be",
+    "by",
+    "for",
+    "from",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "that",
+    "the",
+    "this",
+    "to",
+    "with",
+    "your",
 }
 _PARAPHRASE_ALIASES = {
     "complement": {"match", "matched", "suit", "suits"},
@@ -91,8 +110,7 @@ def is_supported_paraphrase(claim: str, source_text: str) -> bool:
         source_tokens.add("formula")
 
     return all(
-        token in source_tokens
-        or bool(_PARAPHRASE_ALIASES.get(token, set()) & source_tokens)
+        token in source_tokens or bool(_PARAPHRASE_ALIASES.get(token, set()) & source_tokens)
         for token in claim_tokens
     )
 

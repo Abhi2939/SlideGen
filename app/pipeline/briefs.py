@@ -4,9 +4,7 @@ from dataclasses import dataclass
 import re
 
 
-_BRAND_LABEL = re.compile(
-    r"\b(?:startup|brand)(?:\s+name)?\s*[:=]?\s*([^,\n.;]+)", re.IGNORECASE
-)
+_BRAND_LABEL = re.compile(r"\b(?:startup|brand)(?:\s+name)?\s*[:=]?\s*([^,\n.;]+)", re.IGNORECASE)
 _EXPLICIT_SLIDE_COUNT = re.compile(
     r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s*[- ]?"
     r"(?:slides?|pages?)\b",
@@ -35,12 +33,8 @@ def short_beauty_brief(prompt: str) -> ShortBeautyBrief | None:
     if not raw_brand:
         return None
     brand = raw_brand if any(char.isupper() for char in raw_brand) else raw_brand.title()
-    remaining = (prompt[: brand_match.start()] + " " + prompt[brand_match.end() :]).strip(
-        " \t,:;-"
-    )
+    remaining = (prompt[: brand_match.start()] + " " + prompt[brand_match.end() :]).strip(" \t,:;-")
     facts = tuple(
-        sentence.strip()
-        for sentence in re.split(r"(?<=[.!?])\s+", remaining)
-        if sentence.strip()
+        sentence.strip() for sentence in re.split(r"(?<=[.!?])\s+", remaining) if sentence.strip()
     )
     return ShortBeautyBrief(brand=brand, facts=facts) if facts else None

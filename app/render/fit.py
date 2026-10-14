@@ -1,5 +1,5 @@
 EMU_PER_PT = 12700
-AVG_CHAR_EM = 0.50   
+AVG_CHAR_EM = 0.50
 LINE_SPACING = 1.2
 
 
@@ -10,7 +10,7 @@ def est_lines(text: str, size_pt: float, width_emu: int) -> int:
         lines, cur = 1, 0
         for word in para.split():
             n = len(word)
-            if n > per_line:                     
+            if n > per_line:
                 if cur:
                     lines += 1
                 lines += (n - 1) // per_line

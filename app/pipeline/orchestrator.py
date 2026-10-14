@@ -54,7 +54,9 @@ def generate_deck(
     settings = settings or Settings.from_env()
     if theme == "default" and short_beauty_brief(clean_prompt) is not None:
         theme = "blush"
-    models = {stage: settings.model_for(stage) for stage in ("analyze", "outline", "write", "review")}
+    models = {
+        stage: settings.model_for(stage) for stage in ("analyze", "outline", "write", "review")
+    }
     if generator is None:
         client: LLMClient = create_llm_client(settings)
         generator = StructuredGenerator(client, max_attempts=settings.structured_attempts)

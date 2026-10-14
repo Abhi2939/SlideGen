@@ -22,8 +22,7 @@ def render(prs, data, theme):
     title_h = fit.text_height(data.title, title_size, w)
     subtitle_size = fit.choose_size(
         SUBTITLE_SIZES,
-        lambda size: not data.subtitle
-        or fit.text_height(data.subtitle, size, w) <= Inches(0.9),
+        lambda size: not data.subtitle or fit.text_height(data.subtitle, size, w) <= Inches(0.9),
     )
     subtitle_h = fit.text_height(data.subtitle, subtitle_size, w) if data.subtitle else 0
     contact_h = Inches(0.35) if data.contact else 0
@@ -34,24 +33,46 @@ def render(prs, data, theme):
 
     add_rect(slide, x, top - Inches(0.36), Inches(0.9), Inches(0.07), theme.accent)
     add_text(
-        slide, x, top, w, title_h, data.title,
-        size_pt=title_size, color=theme.on_primary,
-        font=theme.font_heading, bold=True, align=PP_ALIGN.CENTER,
+        slide,
+        x,
+        top,
+        w,
+        title_h,
+        data.title,
+        size_pt=title_size,
+        color=theme.on_primary,
+        font=theme.font_heading,
+        bold=True,
+        align=PP_ALIGN.CENTER,
     )
     y = top + title_h
     if data.subtitle:
         y += GAP_M
         add_text(
-            slide, x, y, w, subtitle_h, data.subtitle,
-            size_pt=subtitle_size, color=theme.surface,
-            font=theme.font_body, align=PP_ALIGN.CENTER,
+            slide,
+            x,
+            y,
+            w,
+            subtitle_h,
+            data.subtitle,
+            size_pt=subtitle_size,
+            color=theme.surface,
+            font=theme.font_body,
+            align=PP_ALIGN.CENTER,
         )
         y += subtitle_h
     if data.contact:
         y += Inches(0.45)
         add_text(
-            slide, x, y, w, contact_h, data.contact,
-            size_pt=14, color=theme.accent, font=theme.font_body,
+            slide,
+            x,
+            y,
+            w,
+            contact_h,
+            data.contact,
+            size_pt=14,
+            color=theme.accent,
+            font=theme.font_body,
             align=PP_ALIGN.CENTER,
         )
     if is_blush:

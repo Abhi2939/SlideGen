@@ -46,7 +46,9 @@ class JobStore:
         *,
         retention_hours: float | None = None,
     ) -> None:
-        configured_dir = data_dir if data_dir is not None else os.getenv("SLIDEGEN_DATA_DIR", "./data")
+        configured_dir = (
+            data_dir if data_dir is not None else os.getenv("SLIDEGEN_DATA_DIR", "./data")
+        )
         self.data_dir = Path(configured_dir).expanduser().resolve()
         self.output_dir = self.data_dir / "outputs"
         self.database_path = self.data_dir / "jobs.sqlite3"
@@ -87,9 +89,7 @@ class JobStore:
                     updated_at TEXT NOT NULL
                 )"""
             )
-            columns = {
-                row["name"] for row in connection.execute("PRAGMA table_info(jobs)")
-            }
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
             if "stage" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN stage TEXT")
             connection.execute("PRAGMA journal_mode=WAL")
@@ -173,9 +173,7 @@ class JobStore:
         )
 
     def mark_failed(self, job_id: str, error: str) -> Job:
-        return self._update(
-            job_id, status="failed", output_path=None, error=error, stage=None
-        )
+        return self._update(job_id, status="failed", output_path=None, error=error, stage=None)
 
     def fail_if_running(self, job_id: str, error: str) -> bool:
         with self._lock, self._connect() as connection:
@@ -220,9 +218,7 @@ class JobStore:
                 ),
             )
             if cursor.rowcount == 0:
-                exists = connection.execute(
-                    "SELECT 1 FROM jobs WHERE id = ?", (job_id,)
-                ).fetchone()
+                exists = connection.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone()
                 if exists is None:
                     raise KeyError(f"unknown job id: {job_id}")
                 raise RuntimeError(f"job {job_id} is no longer running")
@@ -236,7 +232,10 @@ class JobStore:
             cursor = connection.execute(
                 "UPDATE jobs SET status = 'failed', error = ?, output_path = NULL, stage = NULL, updated_at = ? "
                 "WHERE status IN ('queued', 'running')",
-                ("Server restarted while this job was waiting or running. Please submit it again.", now),
+                (
+                    "Server restarted while this job was waiting or running. Please submit it again.",
+                    now,
+                ),
             )
         return cursor.rowcount
 

@@ -25,6 +25,7 @@ def create_app(
     submissions_per_window: int = 10,
     rate_window_seconds: float = 60,
     access_code: str | None = None,
+    trust_cloudflare_ip_header: bool | None = None,
 ) -> FastAPI:
     load_dotenv()
     active_limit = max_active_jobs
@@ -38,12 +39,21 @@ def create_app(
         raise ValueError("SLIDEGEN_REQUIRE_ACCESS_CODE must be a boolean value")
     if require_access_code in {"1", "true", "yes", "on"} and not configured_access_code:
         raise ValueError("SLIDEGEN_ACCESS_CODE is required when access-code enforcement is enabled")
+    trust_header_value = os.getenv("SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER", "false").strip().lower()
+    if trust_header_value not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+        raise ValueError("SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER must be a boolean value")
+    trust_client_ip = (
+        trust_cloudflare_ip_header
+        if trust_cloudflare_ip_header is not None
+        else trust_header_value in {"1", "true", "yes", "on"}
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         application.state.runner = runner or JobRunner(store or JobStore(data_dir))
         application.state.max_active_jobs = active_limit
         application.state.access_code = configured_access_code
+        application.state.trust_cloudflare_ip_header = trust_client_ip
         application.state.rate_limiter = _FixedWindowLimiter(
             submissions_per_window,
             rate_window_seconds,

@@ -27,8 +27,19 @@ def add_rect(slide, x, y, w, h, color, shape=MSO_SHAPE.RECTANGLE):
 
 
 def add_text(
-    slide, x, y, w, h, text, *, size_pt, color, font,
-    bold=False, align=PP_ALIGN.LEFT, anchor=MSO_ANCHOR.TOP,
+    slide,
+    x,
+    y,
+    w,
+    h,
+    text,
+    *,
+    size_pt,
+    color,
+    font,
+    bold=False,
+    align=PP_ALIGN.LEFT,
+    anchor=MSO_ANCHOR.TOP,
 ):
     box = slide.shapes.add_textbox(int(x), int(y), int(w), int(h))
     tf = box.text_frame
@@ -52,11 +63,16 @@ def add_title(slide, theme: Theme, text: str, color=None):
     """Standard slide title: small accent bar plus a title that steps down
     in size until it fits the title area."""
     add_rect(slide, MARGIN_X, MARGIN_TOP - Inches(0.22), Inches(0.7), Inches(0.06), theme.accent)
-    size = fit.choose_size(
-        TITLE_SIZES, lambda s: fit.text_height(text, s, CONTENT_W) <= TITLE_H
-    )
+    size = fit.choose_size(TITLE_SIZES, lambda s: fit.text_height(text, s, CONTENT_W) <= TITLE_H)
     add_text(
-        slide, MARGIN_X, MARGIN_TOP, CONTENT_W, TITLE_H, text,
-        size_pt=size, color=color or theme.primary,
-        font=theme.font_heading, bold=True,
+        slide,
+        MARGIN_X,
+        MARGIN_TOP,
+        CONTENT_W,
+        TITLE_H,
+        text,
+        size_pt=size,
+        color=color or theme.primary,
+        font=theme.font_heading,
+        bold=True,
     )

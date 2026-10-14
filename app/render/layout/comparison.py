@@ -3,7 +3,7 @@ from pptx.util import Inches
 
 from app.render import fit
 from app.render.common import add_rect, add_text, add_title, new_slide
-from app.render.theme import BODY_H, BODY_TOP, CONTENT_W, GAP_M, GAP_S, MARGIN_X
+from app.render.theme import BODY_H, BODY_TOP, CONTENT_W, GAP_S, MARGIN_X
 
 POINT_SIZES = (17, 15, 13, 11)
 
@@ -23,7 +23,9 @@ def render(prs, data, theme):
     def fits(size):
         for item in data.items:
             head_h = fit.text_height(item.name, 19, card_w - Inches(0.48))
-            required = head_h + Inches(0.55) + point_height(size, item) + GAP_S * (len(item.points) - 1)
+            required = (
+                head_h + Inches(0.55) + point_height(size, item) + GAP_S * (len(item.points) - 1)
+            )
             if required > card_h - Inches(0.45):
                 return False
         return True
@@ -41,8 +43,16 @@ def render(prs, data, theme):
         content_h = Inches(0.55) + head_h + Inches(0.2) + points_h + GAP_S * len(item.points)
         content_top = top + max(Inches(0.2), (card_h - content_h) // 2)
         add_text(
-            slide, text_x, content_top, text_w, max(head_h, Inches(0.32)), item.name,
-            size_pt=19, color=theme.primary, font=theme.font_heading, bold=True,
+            slide,
+            text_x,
+            content_top,
+            text_w,
+            max(head_h, Inches(0.32)),
+            item.name,
+            size_pt=19,
+            color=theme.primary,
+            font=theme.font_heading,
+            bold=True,
         )
         y = content_top + head_h + Inches(0.2)
         for point in item.points:
@@ -50,8 +60,15 @@ def render(prs, data, theme):
             marker = Inches(0.1)
             add_rect(slide, text_x, y + Inches(0.08), marker, marker, theme.accent, MSO_SHAPE.OVAL)
             add_text(
-                slide, text_x + Inches(0.2), y, text_w - Inches(0.2), point_h, point,
-                size_pt=size, color=theme.text, font=theme.font_body,
+                slide,
+                text_x + Inches(0.2),
+                y,
+                text_w - Inches(0.2),
+                point_h,
+                point,
+                size_pt=size,
+                color=theme.text,
+                font=theme.font_body,
             )
             y += point_h + GAP_S
     return slide
