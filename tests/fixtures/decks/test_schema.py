@@ -106,6 +106,19 @@ def test_pie_needs_exactly_one_series():
         Deck.model_validate(_deck(bad))
 
 
+@pytest.mark.parametrize(
+    "values", [[-1, 2], [0, 0]]
+)
+def test_pie_values_must_be_non_negative_with_positive_total(values):
+    with pytest.raises(ValidationError):
+        Deck.model_validate(_deck(_chart(chart_type="pie", series=[{"name": "s", "values": values}])) )
+
+
+def test_section_slide_requires_visible_subtitle():
+    with pytest.raises(ValidationError):
+        Deck.model_validate(_deck({"layout": "section", "title": "Overview"}))
+
+
 def test_chart_requires_provenance():
     bad = _chart()
     del bad["provenance"]

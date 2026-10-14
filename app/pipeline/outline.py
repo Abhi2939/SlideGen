@@ -1,5 +1,7 @@
 """Plan slide-by-slide structure from an analyzed deck brief."""
 
+import re
+
 from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.briefs import short_beauty_brief
 from app.llm.structured import StructuredGenerator
@@ -14,7 +16,10 @@ title, section, bullets, two_column, stat, process, comparison, chart, quote,
 closing. Assign every required fact ID to one or more relevant slides; do not
 omit or invent IDs. Use key_points to guide later slide writing. Choose layouts
 that fit each slide's purpose, avoid repeating points, and do not invent data
-or quotations. Do not add contact details, email addresses, phone numbers, or
+or quotations. When the request asks for charts or figures, include at least
+two visual slides using chart, stat, or process layouts. Explicit requests for
+process, stat, comparison, or quote slides must be reflected in the outline.
+Use section only for a brief divider with a visible subtitle. Do not add contact details, email addresses, phone numbers, or
 URLs unless the user supplied them. Do not add traction, market-size, financial,
 or fundraising slides unless the user explicitly requests an investor deck or
 supplies those details. For a sparse product description, build a concise
@@ -72,7 +77,7 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
                 if fact_id in facts_by_id
                 and not unsupported_claim_categories(facts_by_id[fact_id].text, prompt)
             ]
-            safe_points = assigned_facts or [prompt.strip()]
+            safe_points = assigned_facts
 
         grounded_slides.append(
             plan.model_copy(
@@ -86,6 +91,28 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
         )
 
     return outline.model_copy(update={"slides": grounded_slides})
+
+
+def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
+    """Ensure explicit visual/layout requests make it into the outline."""
+    requested = prompt.casefold()
+    layouts = [slide.layout for slide in outline.slides]
+    if re.search(r"\bcharts?\b", requested) and "chart" not in layouts:
+        raise ValueError("the request explicitly asks for a chart slide")
+    if re.search(r"\b(?:charts?|figures?|graphs?|visualizations?)\b", requested):
+        visual_count = sum(layout in {"chart", "stat", "process"} for layout in layouts)
+        if visual_count < 2:
+            raise ValueError("a request for charts or figures needs at least two visual slides")
+    for keyword, layout in (
+        (r"\bprocess\b", "process"),
+        (r"\bstats?\b", "stat"),
+        (r"\bcomparisons?\b", "comparison"),
+        (r"\bquotes?\b", "quote"),
+    ):
+        if re.search(keyword, requested) and layout not in layouts:
+            raise ValueError(f"the request explicitly asks for a {layout} slide")
+    if re.search(r"\bclosing slide\b", requested) and layouts[-1] != "closing":
+        raise ValueError("the request asks for a closing slide, which must be last")
 
 
 def create_outline(
@@ -186,7 +213,9 @@ def create_outline(
             if outline.deck_title != analysis.deck_title:
                 raise ValueError("outline deck title does not match the analyzed deck title")
             validate_outline_facts(analysis, outline)
-            return _ground_outline(clean_prompt, analysis, outline)
+            grounded_outline = _ground_outline(clean_prompt, analysis, outline)
+            _validate_requested_layouts(clean_prompt, grounded_outline)
+            return grounded_outline
         except ValueError as exc:
             last_error = exc
             correction = (

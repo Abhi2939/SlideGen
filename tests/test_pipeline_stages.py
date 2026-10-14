@@ -1,8 +1,9 @@
 import pytest
 
 from app.pipeline.analyze import MAX_PROMPT_CHARS, analyze_prompt
+from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput
-from app.pipeline.outline import create_outline
+from app.pipeline.outline import _ground_outline, _validate_requested_layouts, create_outline
 
 
 class FakeGenerator:
@@ -60,6 +61,8 @@ def test_analyze_prompt_calls_structured_generator_with_analysis_contract():
     assert "Make a product launch deck." in kwargs["user_prompt"]
     assert "Never infer an investor pitch" in kwargs["system_prompt"]
     assert "Treat labels such as 'Startup name'" in kwargs["system_prompt"]
+    assert "Separate factual source material from" in kwargs["system_prompt"]
+    assert "presentation instructions" in kwargs["system_prompt"]
 
 
 def test_analyze_short_branded_beauty_brief_keeps_brand_and_exact_facts():
@@ -117,6 +120,72 @@ def test_outline_fails_after_semantic_retries():
 
     with pytest.raises(ValueError, match="failed semantic validation after 2 attempt"):
         create_outline("Make a launch deck", _analysis(), generator, "small-model")
+
+
+def test_outline_requires_two_visual_slides_when_prompt_requests_charts():
+    with pytest.raises(ValueError, match="asks for a chart slide"):
+        _validate_requested_layouts(
+            "Create a deck and include charts and figures", _outline()
+        )
+    with pytest.raises(ValueError, match="at least two visual slides"):
+        _validate_requested_layouts("Create a deck with figures", _outline())
+
+
+def test_outline_honors_explicit_layout_requests():
+    outline = OutlineOutput(
+        deck_title="Launch plan",
+        slides=[
+            {"index": 0, "title": "Launch plan", "purpose": "Introduce", "layout": "title"},
+            {"index": 1, "title": "Launch date", "purpose": "Explain", "layout": "bullets"},
+            {"index": 2, "title": "Next steps", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+    with pytest.raises(ValueError, match="process slide"):
+        _validate_requested_layouts("Add a process slide", outline)
+
+
+@pytest.mark.parametrize(
+    "prompt,claim",
+    [
+        (
+            "Startup name: SwiftCrate. We ship refrigerated groceries to apartments in Bangalore within 30 minutes. Customers order through our website and app.",
+            "SwiftCrate delivers refrigerated groceries through its website.",
+        ),
+        (
+            "Create a deck introducing our AI-powered resume screening tool to HR managers.",
+            "The AI-powered resume screening tool supports HR managers.",
+        ),
+        (
+            "Explain why customers often struggle to find affordable housing for a city council briefing.",
+            "Customers often struggle to find affordable housing.",
+        ),
+    ],
+)
+def test_grounding_allows_claim_categories_already_in_source(prompt, claim):
+    assert unsupported_claim_categories(claim, prompt) == []
+
+
+def test_grounded_outline_does_not_use_full_request_as_fallback_key_point():
+    analysis = _analysis().model_copy(update={"required_facts": []})
+    outline = OutlineOutput(
+        deck_title="Launch plan",
+        slides=[
+            {"index": 0, "title": "Launch plan", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "How It Works",
+                "purpose": "Explain a process",
+                "layout": "process",
+                "key_points": ["AI analysis", "We assess customers", "Products ship next day"],
+            },
+            {"index": 2, "title": "Next steps", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    result = _ground_outline("Make a launch deck", analysis, outline)
+
+    assert result.slides[1].key_points == []
+    assert result.slides[1].layout == "bullets"
 
 
 def test_outline_replaces_unsupported_process_points_with_assigned_facts():

@@ -62,7 +62,7 @@ class TitleSlide(_SlideBase):
 
 class SectionSlide(_SlideBase):
     layout: Literal["section"]
-    subtitle: str | None = Field(default=None, max_length=SUBTITLE_MAX)
+    subtitle: str = Field(min_length=1, max_length=SUBTITLE_MAX)
 
 
 class BulletsSlide(_SlideBase):
@@ -112,6 +112,11 @@ class ChartSlide(_SlideBase):
                 )
         if self.chart_type in ("pie", "doughnut") and len(self.series) != 1:
             raise ValueError("pie and doughnut charts need exactly one series")
+        if self.chart_type in ("pie", "doughnut") and (
+            any(value < 0 for value in self.series[0].values)
+            or sum(self.series[0].values) <= 0
+        ):
+            raise ValueError("pie and doughnut values must be non-negative with a positive total")
         return self
 
 class QuoteSlide(_SlideBase):

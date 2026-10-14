@@ -42,6 +42,9 @@ WRITE_SYSTEM_PROMPT = """You are the slide-writing stage of a presentation gener
 Write only the requested slide and return JSON matching its exact schema.
 Keep the planned title and layout unchanged. Use the supplied key points and
 include every fact assigned to this slide. Preserve verbatim facts exactly.
+Treat requests such as slide count, layout, "include charts", and "cover these
+topics" as instructions for your work, never as slide copy. Do not repeat or
+paraphrase those instructions as presentation content.
 Use only the facts assigned to this slide; do not repeat another slide's
 assigned facts, even if they appear in the original request. Do not repeat the
 deck subtitle or slogan on this slide unless it is assigned here.
@@ -54,6 +57,9 @@ and neutral explanations, not invented evidence or business claims. Do not
 repeat metadata labels such as 'Startup name' in slide copy. Make each bullet
 add a distinct point; do not restate the title, subtitle, or another bullet in
 different words.
+When no supported key points are available, write a brief general explanation
+of the planned topic without inventing company-specific details, statistics,
+capabilities, or outcomes.
 Treat the original request and assigned facts as the only evidence. The slide
 plan is organizational guidance, not a source of facts; ignore any key point
 that adds details absent from the request and assigned facts. Do not infer
@@ -78,6 +84,53 @@ _METADATA_LABEL_PATTERN = re.compile(
     r"brand(?:\s+name)?\s*:\s*[A-Z][\w'-]*)",
     re.IGNORECASE,
 )
+_DIRECTIVE_PATTERN = re.compile(
+    r"\b(?:create|make|generate|build|prepare|write|produce|include|add|"
+    r"cover|show|compare|explain|turn|convert|avoid|ensure)\b[^.!?;]*",
+    re.IGNORECASE,
+)
+_COPY_DIRECTIVE_PREFIX = re.compile(
+    r"^\s*(?:please\s+)?(?:create|make|generate|build|prepare|write|produce|"
+    r"include|add|cover|show|compare|explain|turn|convert|avoid|ensure)\b",
+    re.IGNORECASE,
+)
+_INSTRUCTION_STOP_WORDS = {
+    "a", "an", "and", "as", "at", "for", "from", "in", "it", "my",
+    "of", "on", "our", "the", "this", "to", "with", "your",
+}
+_INSTRUCTION_ALIASES = {
+    "make": "create", "generate": "create", "build": "create", "prepare": "create",
+    "write": "create", "produce": "create", "presentation": "deck", "ppt": "deck",
+    "pptx": "deck", "slides": "slide",
+}
+
+
+def _instruction_tokens(text: str) -> set[str]:
+    tokens = {
+        token for token in re.findall(r"[a-z0-9]+", text.casefold())
+        if token not in _INSTRUCTION_STOP_WORDS
+    }
+    return {_INSTRUCTION_ALIASES.get(token, token) for token in tokens}
+
+
+def _contains_instruction_echo(slide_copy: str, prompt: str) -> bool:
+    """Catch slide copy that repeats a user's imperative deck instructions."""
+    for copy_line in slide_copy.splitlines():
+        if not _COPY_DIRECTIVE_PREFIX.search(copy_line):
+            continue
+        copy_tokens = _instruction_tokens(copy_line)
+        if len(copy_tokens) < 3:
+            continue
+        for match in _DIRECTIVE_PATTERN.finditer(prompt):
+            instruction_tokens = _instruction_tokens(match.group(0))
+            if len(instruction_tokens) < 3:
+                continue
+            shared = copy_tokens & instruction_tokens
+            if len(shared) >= 3 and len(shared) / len(copy_tokens) >= 0.75:
+                return True
+    return False
+
+
 def _text_leaves(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -190,6 +243,20 @@ def _write_one(
                     f"{duplicate_bullets}"
                 )
             text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
+            slide_data = slide.model_dump(mode="json")
+            slide_copy = "\n".join(
+                _text_leaves(
+                    {
+                        key: value
+                        for key, value in slide_data.items()
+                        if key not in {"title", "speaker_notes"}
+                    }
+                )
+            )
+            if _contains_instruction_echo(slide_copy, prompt):
+                raise ValueError(
+                    "generated slide repeated the user's presentation instructions as slide copy"
+                )
             normalized_content = _normalized_phrase(text_content)
             repeated_unassigned = [
                 fact.text

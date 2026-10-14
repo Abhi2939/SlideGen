@@ -7,8 +7,11 @@ from app.llm.structured import StructuredGenerator
 
 MAX_PROMPT_CHARS = 12_000
 ANALYSIS_SYSTEM_PROMPT = """You are the analysis stage of a presentation generator.
-Extract a concise brief for a presentation. Preserve concrete user-provided
-facts, names, dates, quantities, and constraints. Mark a fact verbatim only
+Extract a concise presentation brief. Separate factual source material from
+presentation instructions. Put requested slide count, layouts, audience,
+format, and emphasis in constraints; do not treat those instructions as facts
+to print on slides. Put concrete user-provided names, dates, quantities,
+product details, and claims in required_facts. Mark a fact verbatim only
 when its exact wording must be retained. Do not invent facts, statistics,
 citations, or audience details. Never infer an investor pitch, fundraising
 request, market analysis, or business plan unless the user asks for one. When

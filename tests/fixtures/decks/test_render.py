@@ -37,6 +37,21 @@ def test_fixture_uses_no_placeholder_layouts(tmp_path):
     assert not any("layout not implemented yet" in text for text in slide_text)
 
 
+def test_rendered_chart_shows_values_and_unit(tmp_path):
+    path = FIXTURES / "all_layouts.json"
+    deck = Deck.model_validate(json.loads(path.read_text(encoding="utf-8")))
+    out = build_deck(deck, tmp_path / "charts.pptx", strict=True)
+    presentation = Presentation(str(out))
+    chart = next(
+        shape.chart
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_chart
+    )
+    assert chart.plots[0].has_data_labels
+    assert chart.plots[0].data_labels.show_value
+
+
 def test_blush_brand_theme_renders_editable_cosmetic_art(tmp_path):
     deck = Deck.model_validate(
         {

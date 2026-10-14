@@ -20,6 +20,7 @@ class FakeWriter:
         invent_offer_once=False,
         repeat_unassigned_fact_once=False,
         duplicate_bullet_once=False,
+        echo_instruction_once=False,
     ):
         self.calls = []
         self.lock = Lock()
@@ -31,6 +32,7 @@ class FakeWriter:
         self.invent_offer_once = invent_offer_once
         self.repeat_unassigned_fact_once = repeat_unassigned_fact_once
         self.duplicate_bullet_once = duplicate_bullet_once
+        self.echo_instruction_once = echo_instruction_once
 
     def generate(self, output_model, **kwargs):
         with self.lock:
@@ -43,6 +45,7 @@ class FakeWriter:
                 invented_offer = self.invent_offer_once and bullet_call == 1
                 repeated_fact = self.repeat_unassigned_fact_once and bullet_call == 1
                 duplicate_bullet = self.duplicate_bullet_once and bullet_call == 1
+                echo_instruction = self.echo_instruction_once and bullet_call == 1
             else:
                 bullet_call = 0
             if output_model is ClosingSlide:
@@ -59,7 +62,10 @@ class FakeWriter:
             if output_model is BulletsSlide:
                 text = "Launch is June 1" if bullet_call > 1 else "The launch is soon"
                 second_bullet = "Prepare the team"
-                if invented_offer:
+                if echo_instruction:
+                    text = "Create a 6-slide deck for an electronics company"
+                    second_bullet = "Include charts and figures"
+                elif invented_offer:
                     second_bullet = "Visit our website for a free sample kit"
                 elif repeated_fact:
                     second_bullet = "Makeup made only for YOU."
@@ -185,6 +191,19 @@ def test_write_slides_retries_duplicate_bullet_points():
     assert len({bullet.text for bullet in result[1].bullets}) == 2
     bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
     assert "contains duplicate bullet points" in bullet_calls[1]["user_prompt"]
+
+
+def test_write_slides_retries_when_copy_echoes_presentation_instructions():
+    analysis, outline = _inputs()
+    generator = FakeWriter(echo_instruction_once=True)
+    prompt = "Generate a 6-slide PowerPoint for my electronics company and include charts and figures."
+
+    result = write_slides(prompt, analysis, outline, generator, "test-model")
+
+    assert generator.bullet_calls == 2
+    assert result[1].bullets[1].text == "Prepare the team"
+    bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
+    assert "repeated the user's presentation instructions" in bullet_calls[1]["user_prompt"]
 
 
 @pytest.mark.parametrize(

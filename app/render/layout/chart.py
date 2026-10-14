@@ -38,6 +38,12 @@ def render(prs, data, theme):
         chart.legend.font.size = Pt(10)
 
     plot = chart.plots[0]
+    plot.has_data_labels = True
+    plot.data_labels.show_value = True
+    plot.data_labels.font.name = theme.font_body
+    plot.data_labels.font.size = Pt(9)
+    if data.unit:
+        plot.data_labels.number_format = f'0.##"{data.unit}"'
     if data.chart_type in ("pie", "doughnut"):
         series = chart.series[0]
         for index, point in enumerate(series.points):
