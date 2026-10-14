@@ -4,12 +4,16 @@ from time import sleep
 import pytest
 
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
+from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput
-from app.pipeline.write_slides import rewrite_slides, write_slides
+from app.pipeline.write_slides import (
+    rewrite_slides,
+    write_slides,
+)
 
 
 class FakeWriter:
-    def __init__(self, *, invent_contact_once=False):
+    def __init__(self, *, invent_contact_once=False, invent_offer_once=False):
         self.calls = []
         self.lock = Lock()
         self.active = 0
@@ -17,6 +21,7 @@ class FakeWriter:
         self.bullet_calls = 0
         self.closing_calls = 0
         self.invent_contact_once = invent_contact_once
+        self.invent_offer_once = invent_offer_once
 
     def generate(self, output_model, **kwargs):
         with self.lock:
@@ -26,6 +31,7 @@ class FakeWriter:
             if output_model is BulletsSlide:
                 self.bullet_calls += 1
                 bullet_call = self.bullet_calls
+                invented_offer = self.invent_offer_once and bullet_call == 1
             else:
                 bullet_call = 0
             if output_model is ClosingSlide:
@@ -41,10 +47,15 @@ class FakeWriter:
                 return TitleSlide(layout="title", title="Launch plan", subtitle="")
             if output_model is BulletsSlide:
                 text = "Launch is June 1" if bullet_call > 1 else "The launch is soon"
+                second_bullet = (
+                    "Visit our website for a free sample kit"
+                    if invented_offer
+                    else "Prepare the team"
+                )
                 return BulletsSlide(
                     layout="bullets",
                     title="Launch date",
-                    bullets=[{"text": text}, {"text": "Prepare the team"}],
+                    bullets=[{"text": text}, {"text": second_bullet}],
                 )
             if output_model is ClosingSlide:
                 return ClosingSlide(layout="closing", title="Next steps", contact=contact)
@@ -86,12 +97,37 @@ def test_write_slides_preserves_order_and_retries_missing_verbatim_fact():
 
     assert [slide.title for slide in result] == ["Launch plan", "Launch date", "Next steps"]
     assert [slide.layout for slide in result] == ["title", "bullets", "closing"]
-    assert generator.bullet_calls == 2
+    assert generator.bullet_calls == 1
+    assert any(bullet.text == "Launch is June 1" for bullet in result[1].bullets)
     assert all(call[1]["stage"] == "write" for call in generator.calls)
     assert all("Do not add claims about performance" in call[1]["system_prompt"] for call in generator.calls)
     assert all("repeat metadata labels such as 'Startup name'" in call[1]["system_prompt"] for call in generator.calls)
     assert all("Make each bullet" in call[1]["system_prompt"] for call in generator.calls)
+    assert all("organizational guidance, not a source of facts" in call[1]["system_prompt"] for call in generator.calls)
+    assert all("does not establish in-house blending" in call[1]["system_prompt"] for call in generator.calls)
+    assert all(call[1]["max_tokens"] == 1600 for call in generator.calls)
     assert generator.max_active <= 2
+
+
+def test_write_slides_defaults_to_single_worker():
+    analysis, outline = _inputs()
+    generator = FakeWriter()
+
+    write_slides("Make a launch deck", analysis, outline, generator, "test-model")
+
+    assert generator.max_active == 1
+
+
+def test_title_slide_includes_assigned_verbatim_fact_in_subtitle():
+    analysis, outline = _inputs()
+    plans = list(outline.slides)
+    plans[0] = plans[0].model_copy(update={"required_fact_ids": [0]})
+    outline = outline.model_copy(update={"slides": plans})
+    generator = FakeWriter()
+
+    result = write_slides("Make a launch deck", analysis, outline, generator, "test-model")
+
+    assert result[0].subtitle == "Launch is June 1"
 
 
 @pytest.mark.parametrize(
@@ -134,7 +170,7 @@ def test_rewrite_slides_changes_only_requested_indices():
     assert result[0] is current[0]
     assert result[2] is current[2]
     assert result[1] is not current[1]
-    assert result[1].bullets[0].text == "Launch is June 1"
+    assert any(bullet.text == "Launch is June 1" for bullet in result[1].bullets)
 
 
 def test_write_slides_rejects_invented_contact_details_and_retries():
@@ -149,6 +185,47 @@ def test_write_slides_rejects_invented_contact_details_and_retries():
     assert generator.closing_calls == 2
     closing_calls = [kwargs for model, kwargs in generator.calls if model is ClosingSlide]
     assert "contact information not supplied" in closing_calls[1]["user_prompt"]
+
+
+def test_write_slides_rejects_unsupported_site_and_sample_offer_then_retries():
+    analysis, outline = _inputs()
+    generator = FakeWriter(invent_offer_once=True)
+
+    result = write_slides("Make a launch deck", analysis, outline, generator, "test-model")
+
+    assert result[1].bullets[1].text == "Prepare the team"
+    bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
+    assert len(bullet_calls) == 2
+    assert "website or sample offers" in bullet_calls[1]["user_prompt"]
+
+
+def test_unsupported_claim_categories_only_allow_source_supported_categories():
+    claims = (
+        "AI shade analysis uses an algorithm; we produce it in-house and ship it. "
+        "Visit our website for a free sample kit after we assess your skin. "
+        "Customers frequently choose a shade that does not fit."
+    )
+
+    categories = unsupported_claim_categories(claims, "Custom-blended makeup for your style.")
+
+    assert categories == [
+        "AI or algorithm claims",
+        "assessment or diagnostic processes",
+        "manufacturing or production processes",
+        "shipping or delivery claims",
+        "website or sample offers",
+        "shade selection processes",
+        "unsupported market or consumer behavior",
+    ]
+
+
+def test_unsupported_claim_guard_allows_categories_present_in_source():
+    source = (
+        "We use AI analysis and an algorithm, assess your skin, blend in-house, "
+        "ship orders, and offer a free sample kit through our website."
+    )
+
+    assert unsupported_claim_categories(source, source) == []
 
 
 def test_rewrite_slides_rejects_out_of_range_index_without_model_call():

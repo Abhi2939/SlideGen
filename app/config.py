@@ -24,6 +24,7 @@ class Settings:
     writing_model: str | None
     review_model: str | None
     structured_attempts: int
+    use_system_proxy: bool = False
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -34,6 +35,9 @@ class Settings:
         attempts = int(os.getenv("SLIDEGEN_STRUCTURED_ATTEMPTS", "2"))
         if attempts < 1:
             raise ValueError("SLIDEGEN_STRUCTURED_ATTEMPTS must be at least 1")
+        proxy_setting = os.getenv("SLIDEGEN_USE_SYSTEM_PROXY", "false").strip().lower()
+        if proxy_setting not in {"1", "true", "yes", "on", "0", "false", "no", "off"}:
+            raise ValueError("SLIDEGEN_USE_SYSTEM_PROXY must be a boolean value")
         return cls(
             llm_provider=provider,
             api_key=api_key,
@@ -43,6 +47,7 @@ class Settings:
             writing_model=os.getenv("SLIDEGEN_WRITING_MODEL") or None,
             review_model=os.getenv("SLIDEGEN_REVIEW_MODEL") or None,
             structured_attempts=attempts,
+            use_system_proxy=proxy_setting in {"1", "true", "yes", "on"},
         )
 
     def model_for(self, stage: str) -> str:

@@ -78,3 +78,21 @@ def test_empty_structured_provider_response_is_retried():
     )
     assert result.title == "Recovered"
     assert len(provider.calls) == 2
+
+
+def test_provider_failure_is_not_retried_by_structured_output_loop():
+    provider = FakeProvider([RuntimeError("rate limit; retry after 2 seconds"), '{"title":"Ready"}'])
+    generator = StructuredGenerator(LLMClient(provider), max_attempts=2)
+
+    with pytest.raises(StructuredOutputError) as exc_info:
+        generator.generate(
+            Result,
+            stage="write",
+            model="test-model",
+            system_prompt="Return a title.",
+            user_prompt="Make a title.",
+        )
+
+    assert exc_info.value.attempts == 1
+    assert "rate limit" in exc_info.value.detail
+    assert len(provider.calls) == 1

@@ -10,7 +10,9 @@ def create_llm_client(settings: Settings | None = None) -> LLMClient:
     if settings.llm_provider == "groq":
         from app.llm.groq_provider import GroqProvider
 
-        return LLMClient(GroqProvider(settings.api_key))
+        return LLMClient(
+            GroqProvider(settings.api_key, use_system_proxy=settings.use_system_proxy)
+        )
     raise LLMProviderError(
         f"Unsupported LLM provider {settings.llm_provider!r}; currently supported: groq"
     )

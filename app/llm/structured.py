@@ -64,13 +64,20 @@ class StructuredGenerator:
                 )
             except LLMProviderError as exc:
                 last_detail = str(exc)
+                # The provider SDK already retries transport and rate-limit
+                # failures. Repeating the same request here can amplify a 429
+                # and consume more of the provider's token budget. Structured
+                # retries below are reserved for responses that arrived but
+                # did not validate.
+                if exc.__cause__ is not None:
+                    raise StructuredOutputError(stage, attempt, last_detail) from exc
                 if attempt == self.max_attempts:
                     break
                 messages = [
                     *messages,
                     {
                         "role": "user",
-                        "content": "The previous provider request failed. Retry the same task and return only valid JSON.",
+                        "content": "The provider returned an empty response. Retry the same task and return only valid JSON.",
                     },
                 ]
                 continue

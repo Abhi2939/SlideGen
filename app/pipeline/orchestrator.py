@@ -23,7 +23,7 @@ def generate_deck(
     settings: Settings | None = None,
     generator: StructuredGenerator | None = None,
     theme: str = "default",
-    max_workers: int = 4,
+    max_workers: int = 1,
     max_repair_rounds: int = 2,
     semantic_attempts: int = 2,
 ) -> Deck:

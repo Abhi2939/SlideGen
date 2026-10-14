@@ -87,6 +87,8 @@ def test_outline_retries_semantic_failure_and_includes_correction():
     assert "omits required fact IDs" in generator.calls[1][1]["user_prompt"]
     assert "Do not add contact details" in generator.calls[0][1]["system_prompt"]
     assert "Every key point must be supported" in generator.calls[0][1]["system_prompt"]
+    assert "planning aids, not evidence" in generator.calls[0][1]["system_prompt"]
+    assert "customer behavior" in generator.calls[0][1]["system_prompt"]
 
 
 def test_outline_fails_after_semantic_retries():
@@ -94,6 +96,33 @@ def test_outline_fails_after_semantic_retries():
 
     with pytest.raises(ValueError, match="failed semantic validation after 2 attempt"):
         create_outline("Make a launch deck", _analysis(), generator, "small-model")
+
+
+def test_outline_replaces_unsupported_process_points_with_assigned_facts():
+    analysis = _analysis()
+    outline = OutlineOutput(
+        deck_title="Launch plan",
+        slides=[
+            {"index": 0, "title": "Launch plan", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "How It Works",
+                "purpose": "Explain the process",
+                "layout": "process",
+                "key_points": ["AI analysis", "We assess the customer", "Products ship next day"],
+                "required_fact_ids": [0],
+            },
+            {"index": 2, "title": "Next steps", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+    generator = FakeGenerator([outline])
+
+    result = create_outline("Make a launch deck", analysis, generator, "small-model")
+
+    process_replacement = result.slides[1]
+    assert process_replacement.layout == "bullets"
+    assert process_replacement.title == "Product Details"
+    assert process_replacement.key_points == ["Launch is June 1"]
 
 
 def test_outline_rejects_empty_prompt_before_model_call():

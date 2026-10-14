@@ -32,3 +32,22 @@ def test_stage_model_override_takes_precedence_over_default():
 def test_unknown_stage_is_rejected():
     with pytest.raises(ValueError, match="Unknown generation stage"):
         _settings().model_for("unknown")
+
+
+def test_system_proxy_is_disabled_by_default(monkeypatch):
+    monkeypatch.delenv("SLIDEGEN_USE_SYSTEM_PROXY", raising=False)
+
+    assert Settings.from_env().use_system_proxy is False
+
+
+def test_system_proxy_can_be_enabled_for_restricted_networks(monkeypatch):
+    monkeypatch.setenv("SLIDEGEN_USE_SYSTEM_PROXY", "true")
+
+    assert Settings.from_env().use_system_proxy is True
+
+
+def test_system_proxy_setting_rejects_invalid_values(monkeypatch):
+    monkeypatch.setenv("SLIDEGEN_USE_SYSTEM_PROXY", "sometimes")
+
+    with pytest.raises(ValueError, match="must be a boolean"):
+        Settings.from_env()

@@ -3,14 +3,25 @@
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+import httpx
 from groq import Groq
 
 
 class GroqProvider:
-    def __init__(self, api_key: str | None, *, timeout: float = 90.0):
+    def __init__(
+        self,
+        api_key: str | None,
+        *,
+        timeout: float = 90.0,
+        use_system_proxy: bool = False,
+    ):
         if not api_key:
             raise ValueError("Set GROQ_API_KEY (or SLIDEGEN_API_KEY) to use Groq")
-        self._client = Groq(api_key=api_key, timeout=timeout)
+        self._client = Groq(
+            api_key=api_key,
+            timeout=timeout,
+            http_client=httpx.Client(trust_env=use_system_proxy),
+        )
 
     def complete(
         self,

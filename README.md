@@ -52,7 +52,7 @@ GROQ_API_KEY=your_groq_api_key
 SLIDEGEN_LLM_PROVIDER=groq
 ```
 
-The application has model defaults, so the key and provider are enough to get started. The defaults are:
+The application has model defaults, so the key and provider are enough to get started. Groq requests bypass system proxy environment variables by default; set `SLIDEGEN_USE_SYSTEM_PROXY=true` only if your network requires an HTTP proxy. The defaults are:
 
 | Pipeline stage | Default model |
 | --- | --- |
@@ -132,6 +132,7 @@ The Blueprint uses a paid Render web plan because Render persistent disks are av
 | `SLIDEGEN_MAX_ACTIVE_JOBS` | `20` | Maximum queued plus running jobs. |
 | `SLIDEGEN_RETENTION_HOURS` | `24` | Age after which job records and deck files are deleted. |
 | `SLIDEGEN_LLM_PROVIDER` | `groq` | Configured provider name. |
+| `SLIDEGEN_USE_SYSTEM_PROXY` | `false` | Use system HTTP proxy variables for Groq requests when the network requires a proxy. |
 | `SLIDEGEN_MODEL` | Provider defaults | Optional default model for all pipeline stages. |
 | `SLIDEGEN_ANALYSIS_MODEL` | `openai/gpt-oss-20b` | Optional analysis-stage override. |
 | `SLIDEGEN_OUTLINE_MODEL` | `openai/gpt-oss-20b` | Optional outline-stage override. |
@@ -161,7 +162,7 @@ from app.render.builder import build_deck
 deck = generate_deck(
     "Create a 6-slide product launch presentation",
     theme="default",
-    max_workers=4,
+    max_workers=1,
     max_repair_rounds=2,
 )
 output_path = build_deck(deck, "outputs/product-launch.pptx", strict=True)
@@ -172,11 +173,11 @@ print(output_path)
 
 1. **Analyze** extracts the deck title, audience, tone, slide count, constraints, and required facts from the prompt.
 2. **Outline** creates a slide-by-slide plan with a purpose, supported layout, key points, and required-fact references. During review, the original request and its required facts remain the source of truth; unsupported outline points do not become requirements.
-3. **Write** generates typed slide content. Slide calls run concurrently, subject to `max_workers`, and output order follows the outline. Generated email addresses and URLs must also appear in the original request.
+3. **Write** generates typed slide content. Slide calls run concurrently, subject to `max_workers` (default `1`), and output order follows the outline. The original request and assigned facts are the evidence source; outline key points only organize that evidence. Generated email addresses and URLs must also appear in the original request.
 4. **Review and repair** checks for missing facts, duplicates, unsupported claims, likely overflow, and coherence. It regenerates flagged slides and reviews the deck again up to `max_repair_rounds`.
 5. **Validate and render** validates the final deck against the shared schema and creates the `.pptx`.
 
-Structured output is validated at each LLM stage. Invalid structured output receives bounded retries. If the final review still fails, `generate_deck()` raises `DeckReviewError` instead of returning a deck that failed QA.
+Structured output is validated at each LLM stage. Invalid structured responses receive bounded retries; provider transport and rate-limit retries are handled by the provider SDK to avoid duplicating failed requests. If the final review still fails, `generate_deck()` raises `DeckReviewError` instead of returning a deck that failed QA.
 
 The deck schema is the shared contract between generation and rendering. It supports ten layouts and enforces content limits and layout-specific requirements in [app/core/deck_schema.py](app/core/deck_schema.py).
 
