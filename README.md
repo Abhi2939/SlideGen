@@ -13,6 +13,8 @@ SlideGen turns a natural-language prompt into a structured presentation, reviews
 
 The web app stores jobs and generated files in SQLite and uses a bounded in-process worker pool. See [Deploy](#deploy) for a public service setup.
 
+The web API currently has no authentication or access-code gate. Anyone who can reach a deployed URL can submit prompts and download generated decks. Add an access-control layer before sharing a deployment that should be private.
+
 ## Requirements
 
 - Python 3.11 or newer.
@@ -115,7 +117,7 @@ The repository includes a `Dockerfile` and a Render Blueprint in `render.yaml`. 
 
 1. Push the repository to GitHub and connect it to Render.
 2. In Render, create a **Blueprint** from this repository and review the service settings from `render.yaml`.
-3. Set the required `GROQ_API_KEY` in the service's environment.
+3. Set the required `GROQ_API_KEY` in the service's environment. The deployed API is currently public and has no access-code protection.
 4. Apply the Blueprint and wait for `/healthz` to pass.
 5. Open the service URL, submit a test prompt, and download the resulting PowerPoint.
 
@@ -187,7 +189,7 @@ Run the test suite from the project root:
 python -m pytest
 ```
 
-The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow. They use fake LLM responses and do not require a live API key.
+The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including queue and rate limits. They use fake LLM responses and do not require a live API key. The API has no access-code/authentication tests because that feature was removed.
 
 ## Visual QA
 
