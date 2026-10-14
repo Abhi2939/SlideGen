@@ -13,7 +13,6 @@ from app.main import create_app
 
 
 FIXTURE = Path(__file__).parent / "fixtures" / "decks" / "all_layouts.json"
-ACCESS_CODE = "test-access-code"
 
 
 def fixture_deck() -> Deck:
@@ -26,39 +25,29 @@ def make_app(tmp_path, *, generate=None, **kwargs):
     return create_app(runner=runner, **kwargs), runner, store
 
 
-def wait_for_status(client: TestClient, job_id: str, status: str, headers=None):
+def wait_for_status(client: TestClient, job_id: str, status: str):
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
-        response = client.get(f"/api/jobs/{job_id}", headers=headers)
+        response = client.get(f"/api/jobs/{job_id}")
         if response.status_code == 200 and response.json()["status"] == status:
             return response
         time.sleep(0.01)
     pytest.fail(f"job {job_id} did not reach status {status!r}")
 
 
-def test_api_full_submit_status_and_download_flow(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLIDEGEN_ACCESS_CODE", ACCESS_CODE)
+def test_api_full_submit_status_and_download_flow(tmp_path):
     app, _, _ = make_app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/healthz").json() == {"ok": True}
-        created = client.post(
-            "/api/jobs",
-            json={"prompt": "Create a Blush investor presentation"},
-            headers={"X-Access-Code": ACCESS_CODE},
-        )
+        created = client.post("/api/jobs", json={"prompt": "Create a Blush investor presentation"})
         assert created.status_code == 202
         job_id = created.json()["id"]
         assert created.json()["status"] == "queued"
 
-        completed = wait_for_status(
-            client,
-            job_id,
-            "done",
-            headers={"X-Access-Code": ACCESS_CODE},
-        )
+        completed = wait_for_status(client, job_id, "done")
         assert completed.json() == {"id": job_id, "status": "done", "error": None}
 
-        download = client.get(f"/api/jobs/{job_id}/download?code={ACCESS_CODE}")
+        download = client.get(f"/api/jobs/{job_id}/download")
         assert download.status_code == 200
         assert download.headers["content-type"] == (
             "application/vnd.openxmlformats-officedocument.presentationml.presentation"
@@ -73,7 +62,8 @@ def test_root_serves_presentation_studio_page(tmp_path):
         response = client.get("/")
     assert response.status_code == 200
     assert "Good ideas deserve a great deck." in response.text
-    assert "slidegenAccessCode" in response.text
+    assert 'id="access-code"' not in response.text
+    assert "slidegenAccessCode" not in response.text
 
 
 @pytest.mark.parametrize(
@@ -85,21 +75,6 @@ def test_api_rejects_bad_prompt_lengths(tmp_path, prompt):
     with TestClient(app) as client:
         response = client.post("/api/jobs", json={"prompt": prompt})
     assert response.status_code == 422
-    assert store.count_active() == 0
-
-
-def test_api_requires_correct_access_code_when_configured(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLIDEGEN_ACCESS_CODE", ACCESS_CODE)
-    app, _, store = make_app(tmp_path)
-    with TestClient(app) as client:
-        missing = client.post("/api/jobs", json={"prompt": "Create a product deck"})
-        wrong = client.post(
-            "/api/jobs",
-            json={"prompt": "Create a product deck"},
-            headers={"X-Access-Code": "wrong"},
-        )
-    assert missing.status_code == 401
-    assert wrong.status_code == 401
     assert store.count_active() == 0
 
 

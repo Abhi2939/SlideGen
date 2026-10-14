@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hmac
-import os
 from pathlib import Path
 import threading
 import time
@@ -48,17 +46,6 @@ class _FixedWindowLimiter:
             return True
 
 
-def _check_access_code(request: Request, *, download_code: str | None = None) -> None:
-    expected = os.getenv("SLIDEGEN_ACCESS_CODE", "")
-    if not expected:
-        return
-    supplied = request.headers.get("X-Access-Code")
-    if supplied is None:
-        supplied = download_code
-    if supplied is None or not hmac.compare_digest(supplied, expected):
-        raise HTTPException(status_code=401, detail="A valid access code is required.")
-
-
 def _client_address(request: Request) -> str:
     if request.client is None:
         return "unknown"
@@ -76,7 +63,6 @@ def healthz() -> dict[str, bool]:
     status_code=status.HTTP_202_ACCEPTED,
 )
 def create_job(payload: CreateJobRequest, request: Request) -> CreateJobResponse:
-    _check_access_code(request)
     if not request.app.state.rate_limiter.allow(_client_address(request)):
         raise HTTPException(
             status_code=429,
@@ -92,7 +78,6 @@ def create_job(payload: CreateJobRequest, request: Request) -> CreateJobResponse
 
 @router.get("/api/jobs/{job_id}", response_model=JobStatusResponse)
 def get_job(job_id: str, request: Request) -> JobStatusResponse:
-    _check_access_code(request)
     job = request.app.state.runner.store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -100,8 +85,7 @@ def get_job(job_id: str, request: Request) -> JobStatusResponse:
 
 
 @router.get("/api/jobs/{job_id}/download")
-def download_job(job_id: str, request: Request, code: str | None = None) -> FileResponse:
-    _check_access_code(request, download_code=code)
+def download_job(job_id: str, request: Request) -> FileResponse:
     job = request.app.state.runner.store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")

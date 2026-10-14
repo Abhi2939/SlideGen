@@ -101,7 +101,7 @@ With the virtual environment activated and `.env` configured:
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-Open <http://127.0.0.1:8000>. Set `SLIDEGEN_ACCESS_CODE` in `.env` to require a code for API requests and downloads. The job database and presentations are written under `SLIDEGEN_DATA_DIR` (default `./data`).
+Open <http://127.0.0.1:8000>. The job database and presentations are written under `SLIDEGEN_DATA_DIR` (default `./data`).
 
 The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves progress from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the health check.
 
@@ -115,7 +115,7 @@ The repository includes a `Dockerfile` and a Render Blueprint in `render.yaml`. 
 
 1. Push the repository to GitHub and connect it to Render.
 2. In Render, create a **Blueprint** from this repository and review the service settings from `render.yaml`.
-3. Set the required `GROQ_API_KEY` in the service's environment. Set `SLIDEGEN_ACCESS_CODE` to a private code before sharing the URL.
+3. Set the required `GROQ_API_KEY` in the service's environment.
 4. Apply the Blueprint and wait for `/healthz` to pass.
 5. Open the service URL, submit a test prompt, and download the resulting PowerPoint.
 
@@ -126,7 +126,6 @@ The Blueprint uses a paid Render web plan because Render persistent disks are av
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROQ_API_KEY` | Required | Private credential used for generation. |
-| `SLIDEGEN_ACCESS_CODE` | Empty | Optional shared access gate. Set a private value before sharing. |
 | `SLIDEGEN_DATA_DIR` | `./data` | Directory for SQLite and deck files; Render uses `/var/data`. |
 | `SLIDEGEN_MAX_JOBS` | `1` | Concurrent generation workers. |
 | `SLIDEGEN_MAX_ACTIVE_JOBS` | `20` | Maximum queued plus running jobs. |
@@ -149,7 +148,6 @@ Copy `.env.example` for local configuration. It contains placeholders only; neve
 - Render disks are available on paid web services and attach to one instance. Redeploys with a disk can briefly take the service offline.
 - The default retention window is 24 hours. Increase it only if the persistent disk has enough room for the expected deck volume.
 - On a free web service, idle spin-down adds a cold start and local files are lost on restart. The configured persistent disk requires a paid plan.
-- The access code is a simple shared gate. Send the client the URL and code separately.
 
 ## Use the pipeline from Python
 
