@@ -18,3 +18,5 @@ class JobStatusResponse(BaseModel):
     id: str
     status: str
     error: str | None
+    stage: str | None = None
+    queue_position: int | None = None

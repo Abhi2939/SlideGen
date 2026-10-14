@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import json
 import re
+from collections.abc import Callable
 
 from app.core.deck_schema import Slide
 from app.llm.structured import StructuredGenerator
@@ -248,6 +249,7 @@ def review_and_repair_deck(
     max_workers: int = 4,
     max_tokens: int | None = 3000,
     semantic_attempts: int = 2,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ReviewRun:
     """Review, rewrite flagged slides only, and re-review up to the round limit."""
     if max_repair_rounds < 0:
@@ -260,6 +262,8 @@ def review_and_repair_deck(
     repair_rounds = 0
 
     while True:
+        if progress_callback is not None:
+            progress_callback("Reviewing generated slides")
         review = review_deck(
             prompt,
             analysis,
@@ -273,6 +277,8 @@ def review_and_repair_deck(
         if review.passed or repair_rounds >= max_repair_rounds:
             return ReviewRun(current_slides, review, repair_rounds)
 
+        if progress_callback is not None:
+            progress_callback("Repairing flagged slides")
         current_slides = rewrite_slides(
             prompt,
             analysis,

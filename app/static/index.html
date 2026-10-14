@@ -217,7 +217,12 @@
         }
         if (job.status === 'failed') throw new Error(job.error || 'The presentation could not be created. Please try again.');
         const seconds = Math.max(2, Math.round((Date.now() - startedAt) / 1000));
-        showStatus(`Your deck is coming together. ${seconds} seconds elapsed.`);
+        if (job.status === 'queued') {
+          const place = job.queue_position ? ` Position ${job.queue_position} in the queue.` : '';
+          showStatus(`Waiting for a worker.${place} ${seconds} seconds elapsed.`);
+        } else {
+          showStatus(`${job.stage || 'Generating your deck'}… ${seconds} seconds elapsed.`);
+        }
       }
     }
 

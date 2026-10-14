@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import uuid
+from typing import Iterator
 
 
 def _utc_now() -> datetime:
@@ -26,6 +28,7 @@ class Job:
     status: str
     output_path: str | None
     error: str | None
+    stage: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -60,10 +63,15 @@ class JobStore:
         self.recover_interrupted_jobs()
         self.cleanup_expired()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
-        return connection
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
     def _initialize(self) -> None:
         with self._lock, self._connect() as connection:
@@ -74,10 +82,17 @@ class JobStore:
                     status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed')),
                     output_path TEXT,
                     error TEXT,
+                    stage TEXT,
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 )"""
             )
+            columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(jobs)")
+            }
+            if "stage" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN stage TEXT")
+            connection.execute("PRAGMA journal_mode=WAL")
 
     @staticmethod
     def _from_row(row: sqlite3.Row | None) -> Job | None:
@@ -89,6 +104,7 @@ class JobStore:
             status=row["status"],
             output_path=row["output_path"],
             error=row["error"],
+            stage=row["stage"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
@@ -105,7 +121,8 @@ class JobStore:
                 if active >= max_active:
                     raise JobQueueFullError("The job queue is full. Please try again shortly.")
             connection.execute(
-                "INSERT INTO jobs (id, prompt, status, created_at, updated_at) VALUES (?, ?, 'queued', ?, ?)",
+                "INSERT INTO jobs (id, prompt, status, stage, created_at, updated_at) "
+                "VALUES (?, ?, 'queued', 'Waiting in queue', ?, ?)",
                 (job_id, prompt, now, now),
             )
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
@@ -123,8 +140,28 @@ class JobStore:
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)
 
+    def queue_position(self, job_id: str) -> int | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT status, created_at, id FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None or row["status"] != "queued":
+                return None
+            position = connection.execute(
+                "SELECT COUNT(*) FROM jobs WHERE status = 'queued' AND "
+                "(created_at < ? OR (created_at = ? AND id <= ?))",
+                (row["created_at"], row["created_at"], row["id"]),
+            ).fetchone()[0]
+        return int(position)
+
     def mark_running(self, job_id: str) -> Job:
-        return self._update(job_id, status="running", output_path=None, error=None)
+        return self._update(
+            job_id,
+            status="running",
+            output_path=None,
+            error=None,
+            stage="Starting generation",
+        )
 
     def mark_done(self, job_id: str, output_path: str | Path) -> Job:
         return self._update(
@@ -132,10 +169,31 @@ class JobStore:
             status="done",
             output_path=str(Path(output_path).resolve()),
             error=None,
+            stage=None,
         )
 
     def mark_failed(self, job_id: str, error: str) -> Job:
-        return self._update(job_id, status="failed", output_path=None, error=error)
+        return self._update(
+            job_id, status="failed", output_path=None, error=error, stage=None
+        )
+
+    def fail_if_running(self, job_id: str, error: str) -> bool:
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "UPDATE jobs SET status = 'failed', output_path = NULL, error = ?, "
+                "stage = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
+                (error, _timestamp(_utc_now()), job_id),
+            )
+        return cursor.rowcount == 1
+
+    def update_stage(self, job_id: str, stage: str) -> Job:
+        return self._update(
+            job_id,
+            status="running",
+            output_path=None,
+            error=None,
+            stage=stage,
+        )
 
     def _update(
         self,
@@ -144,14 +202,30 @@ class JobStore:
         status: str,
         output_path: str | None,
         error: str | None,
+        stage: str | None,
     ) -> Job:
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE jobs SET status = ?, output_path = ?, error = ?, updated_at = ? WHERE id = ?",
-                (status, output_path, error, _timestamp(_utc_now()), job_id),
+                "UPDATE jobs SET status = ?, output_path = ?, error = ?, stage = ?, updated_at = ? "
+                "WHERE id = ? AND (? IS NULL OR status = ?)",
+                (
+                    status,
+                    output_path,
+                    error,
+                    stage,
+                    _timestamp(_utc_now()),
+                    job_id,
+                    "running" if status == "done" else None,
+                    "running" if status == "done" else None,
+                ),
             )
             if cursor.rowcount == 0:
-                raise KeyError(f"unknown job id: {job_id}")
+                exists = connection.execute(
+                    "SELECT 1 FROM jobs WHERE id = ?", (job_id,)
+                ).fetchone()
+                if exists is None:
+                    raise KeyError(f"unknown job id: {job_id}")
+                raise RuntimeError(f"job {job_id} is no longer running")
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)  # type: ignore[return-value]
 
@@ -160,7 +234,7 @@ class JobStore:
         now = _timestamp(_utc_now())
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE jobs SET status = 'failed', error = ?, output_path = NULL, updated_at = ? "
+                "UPDATE jobs SET status = 'failed', error = ?, output_path = NULL, stage = NULL, updated_at = ? "
                 "WHERE status IN ('queued', 'running')",
                 ("Server restarted while this job was waiting or running. Please submit it again.", now),
             )

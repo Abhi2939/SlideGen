@@ -26,6 +26,8 @@ services:
         value: "20"
       - key: SLIDEGEN_RETENTION_HOURS
         value: "24"
+      - key: SLIDEGEN_JOB_TIMEOUT_SECONDS
+        value: "900"
       - key: SLIDEGEN_LLM_PROVIDER
         value: groq
       - key: SLIDEGEN_STRUCTURED_ATTEMPTS

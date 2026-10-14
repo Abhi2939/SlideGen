@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+import sqlite3
 import threading
 import time
 
@@ -75,6 +76,32 @@ def test_job_failure_stores_clean_user_message(tmp_path):
         runner.close()
 
 
+def test_job_timeout_fails_with_clean_user_message(tmp_path):
+    store = JobStore(tmp_path)
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_generate(prompt: str) -> Deck:
+        started.set()
+        assert release.wait(timeout=5)
+        return fixture_deck()
+
+    runner = JobRunner(
+        store,
+        generate=slow_generate,
+        max_runtime_seconds=0.05,
+    )
+    try:
+        submitted = runner.submit("Make a presentation")
+        assert started.wait(timeout=5)
+        failed = wait_for_status(store, submitted.id, "failed")
+        assert failed.error == USER_ERROR
+        assert failed.output_path is None
+    finally:
+        release.set()
+        runner.close()
+
+
 def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, caplog):
     store = JobStore(tmp_path)
     review = ReviewOutput(
@@ -129,3 +156,25 @@ def test_startup_recovery_marks_queued_jobs_failed(tmp_path):
     assert recovered.status == "failed"
     assert recovered.error == "Server restarted while this job was waiting or running. Please submit it again."
     assert store_after_restart.count_active() == 0
+
+
+def test_job_store_migrates_existing_database_for_stage_tracking(tmp_path):
+    database = tmp_path / "jobs.sqlite3"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """CREATE TABLE jobs (
+                id TEXT PRIMARY KEY,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'done', 'failed')),
+                output_path TEXT,
+                error TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )"""
+        )
+
+    store = JobStore(tmp_path)
+    queued = store.create("Migrated job")
+
+    assert queued.status == "queued"
+    assert queued.stage == "Waiting in queue"

@@ -45,7 +45,13 @@ def test_api_full_submit_status_and_download_flow(tmp_path):
         assert created.json()["status"] == "queued"
 
         completed = wait_for_status(client, job_id, "done")
-        assert completed.json() == {"id": job_id, "status": "done", "error": None}
+        assert completed.json() == {
+            "id": job_id,
+            "status": "done",
+            "error": None,
+            "stage": None,
+            "queue_position": None,
+        }
 
         download = client.get(f"/api/jobs/{job_id}/download")
         assert download.status_code == 200
@@ -207,5 +213,37 @@ def test_api_rejects_submissions_when_active_job_limit_is_reached(tmp_path):
             assert "queue is full" in second.json()["detail"]
             assert store.count_active() == 1
             release.set()
+    finally:
+        release.set()
+
+
+def test_api_reports_queue_position_and_generation_stage(tmp_path):
+    started = threading.Event()
+    release = threading.Event()
+
+    def slow_generate(prompt: str) -> Deck:
+        started.set()
+        assert release.wait(timeout=5)
+        return fixture_deck()
+
+    app, _, _ = make_app(tmp_path, generate=slow_generate)
+    try:
+        with TestClient(app) as client:
+            first = client.post("/api/jobs", json={"prompt": "Create the first deck"})
+            assert first.status_code == 202
+            assert started.wait(timeout=5)
+            second = client.post("/api/jobs", json={"prompt": "Create the second deck"})
+            second_id = second.json()["id"]
+            queued = client.get(f"/api/jobs/{second_id}").json()
+            assert queued["status"] == "queued"
+            assert queued["stage"] == "Waiting in queue"
+            assert queued["queue_position"] == 1
+            release.set()
+            active = wait_for_status(client, second_id, "running")
+            assert active.json()["stage"] in {
+                "Generating presentation",
+                "Rendering PowerPoint",
+            }
+            assert active.json()["queue_position"] is None
     finally:
         release.set()

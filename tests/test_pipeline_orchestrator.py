@@ -1,4 +1,5 @@
 import pytest
+import time
 
 from app.config import Settings
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
@@ -82,12 +83,14 @@ def _settings():
 
 def test_orchestrator_runs_all_stages_and_returns_validated_deck():
     generator = FakePipelineGenerator()
+    stages = []
 
     deck = generate_deck(
         "Make a launch presentation",
         settings=_settings(),
         generator=generator,
         theme="default",
+        progress_callback=stages.append,
     )
 
     assert deck.title == "Launch plan"
@@ -103,6 +106,14 @@ def test_orchestrator_runs_all_stages_and_returns_validated_deck():
         "writing-model",
         "writing-model",
         "review-model",
+    ]
+    assert stages == [
+        "Analyzing request",
+        "Planning slide sequence",
+        "Writing slide content",
+        "Reviewing slide content",
+        "Reviewing generated slides",
+        "Validating presentation",
     ]
 
 
@@ -137,4 +148,16 @@ def test_orchestrator_rejects_empty_prompt_before_calling_generator():
     generator = FakePipelineGenerator()
     with pytest.raises(ValueError, match="must not be empty"):
         generate_deck("  ", settings=_settings(), generator=generator)
+    assert generator.calls == []
+
+
+def test_orchestrator_checks_job_deadline_before_starting_generation():
+    generator = FakePipelineGenerator()
+    with pytest.raises(TimeoutError, match="exceeded its time limit"):
+        generate_deck(
+            "Make a launch presentation",
+            settings=_settings(),
+            generator=generator,
+            deadline=time.monotonic() - 1,
+        )
     assert generator.calls == []

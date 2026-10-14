@@ -106,7 +106,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 Open <http://127.0.0.1:8000>. The job database and presentations are written under `SLIDEGEN_DATA_DIR` (default `./data`).
 
-The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves progress from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the health check.
+The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves the current stage and queue position from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the public health check. When access-code enforcement is enabled, send `X-Access-Code` with each job API request.
 
 If a job fails, the browser shows a generic error. Check the terminal running Uvicorn for the job's traceback; when final review fails, the log also includes the review findings. The API keeps this detail out of the user-facing error.
 
@@ -137,6 +137,7 @@ The Blueprint uses a paid Render web plan because Render persistent disks are av
 | `SLIDEGEN_MAX_JOBS` | `1` | Concurrent generation workers. |
 | `SLIDEGEN_MAX_ACTIVE_JOBS` | `20` | Maximum queued plus running jobs. |
 | `SLIDEGEN_RETENTION_HOURS` | `24` | Age after which job records and deck files are deleted. |
+| `SLIDEGEN_JOB_TIMEOUT_SECONDS` | `900` | Maximum time budget for a generation job. The deadline is checked between pipeline stages and after rendering. |
 | `SLIDEGEN_LLM_PROVIDER` | `groq` | Configured provider name. |
 | `SLIDEGEN_USE_SYSTEM_PROXY` | `false` | Use system HTTP proxy variables for Groq requests when the network requires a proxy. |
 | `SLIDEGEN_MODEL` | Provider defaults | Optional default model for all pipeline stages. |
@@ -152,6 +153,7 @@ Copy `.env.example` for local configuration. It contains placeholders only; neve
 
 - Run a single service instance. The queue is in-process and the SQLite database and files live on one attached disk. The Blueprint sets `numInstances: 1`.
 - The API accepts at most 20 queued or running jobs overall and 10 submissions per client IP per minute by default.
+- Job status includes the current pipeline stage and queue position. The default job time budget is 900 seconds. A deadline can mark a job failed while an in-flight provider request is still waiting for its own network timeout; Python worker threads cannot interrupt that request.
 - Render disks are available on paid web services and attach to one instance. Redeploys with a disk can briefly take the service offline.
 - The default retention window is 24 hours. Increase it only if the persistent disk has enough room for the expected deck volume.
 - On a free web service, idle spin-down adds a cold start and local files are lost on restart. The configured persistent disk requires a paid plan.

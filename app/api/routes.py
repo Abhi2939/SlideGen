@@ -99,7 +99,13 @@ def get_job(
     job = request.app.state.runner.store.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
-    return JobStatusResponse(id=job.id, status=job.status, error=job.error)
+    return JobStatusResponse(
+        id=job.id,
+        status=job.status,
+        error=job.error,
+        stage=job.stage,
+        queue_position=request.app.state.runner.store.queue_position(job.id),
+    )
 
 
 @router.get("/api/jobs/{job_id}/download")
