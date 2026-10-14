@@ -203,7 +203,9 @@ def test_unsupported_claim_categories_only_allow_source_supported_categories():
     claims = (
         "AI shade analysis uses an algorithm; we produce it in-house and ship it. "
         "Visit our website for a free sample kit after we assess your skin. "
-        "Customers frequently choose a shade that does not fit."
+        "Products are blended and packaged; try our personalized line today. "
+        "Customers frequently choose a shade that does not fit. "
+        "Standard options often fail to align, and finding a match is difficult."
     )
 
     categories = unsupported_claim_categories(claims, "Custom-blended makeup for your style.")
@@ -214,6 +216,7 @@ def test_unsupported_claim_categories_only_allow_source_supported_categories():
         "manufacturing or production processes",
         "shipping or delivery claims",
         "website or sample offers",
+        "availability or purchase claims",
         "shade selection processes",
         "unsupported market or consumer behavior",
     ]
