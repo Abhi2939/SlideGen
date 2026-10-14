@@ -57,7 +57,7 @@ class JobStore:
         self.retention = timedelta(hours=value)
         self._lock = threading.RLock()
         self._initialize()
-        self.recover_running_jobs()
+        self.recover_interrupted_jobs()
         self.cleanup_expired()
 
     def _connect(self) -> sqlite3.Connection:
@@ -155,16 +155,20 @@ class JobStore:
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)  # type: ignore[return-value]
 
-    def recover_running_jobs(self) -> int:
-        """Fail jobs left running by a previous server process."""
+    def recover_interrupted_jobs(self) -> int:
+        """Fail jobs left queued or running by a previous server process."""
         now = _timestamp(_utc_now())
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
                 "UPDATE jobs SET status = 'failed', error = ?, output_path = NULL, updated_at = ? "
-                "WHERE status = 'running'",
-                ("Server restarted while this job was running. Please submit it again.", now),
+                "WHERE status IN ('queued', 'running')",
+                ("Server restarted while this job was waiting or running. Please submit it again.", now),
             )
         return cursor.rowcount
+
+    def recover_running_jobs(self) -> int:
+        """Compatibility alias for startup recovery of all interrupted jobs."""
+        return self.recover_interrupted_jobs()
 
     def cleanup_expired(self, *, now: datetime | None = None) -> int:
         """Remove expired job rows and any output files they reference."""
