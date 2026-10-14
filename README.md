@@ -113,6 +113,8 @@ If a job fails, the browser shows a generic error. Check the terminal running Uv
 
 The repository includes a `Dockerfile` and a Render Blueprint in `render.yaml`. The Blueprint runs one Docker web service in Singapore, checks `/healthz`, and attaches a 1 GB persistent disk at `/var/data` for SQLite and completed presentations.
 
+Live Render service: <https://slidegen-edz9.onrender.com/>.
+
 ### Deploy on Render
 
 1. Push the repository to GitHub and connect it to Render.
