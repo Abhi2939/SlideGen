@@ -46,6 +46,19 @@ UNSUPPORTED_CLAIM_PATTERNS = {
         r"\b(?:finding|getting|matching)\b.{0,60}\b(?:difficult|hard|challenging)\b",
         re.IGNORECASE,
     ),
+    "unsupported company scope or operations": re.compile(
+        r"\b(?:core competencies|product portfolio|product range|product line|"
+        r"product offerings|portfolio of|R\s*&\s*D (?:capabilities|focus|investment)|"
+        r"production capacity|global supply chain|supply chain reach|global presence|"
+        r"global reach|international operations|supply chain|industrial solutions|consumer electronics|"
+        r"smartphones|IoT devices|specializ(?:e[sd]?|ing)\s+in|product focus|"
+        r"market presence|market expansion|strategic initiatives|new product development|"
+        r"innovation roadmap|mission statement|company vision|company values|"
+        r"leadership team|customer base|customer support|customer service|strengths?|"
+        r"manufacturing capabilities|quality standards|innovative|"
+        r"R\s*&\s*D|contact us|partnership)\b",
+        re.IGNORECASE,
+    ),
 }
 
 _PARAPHRASE_STOP_WORDS = {

@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import re
+from decimal import Decimal
 from typing import Any, Mapping
 
 from app.core.deck_schema import (
@@ -52,6 +53,12 @@ Do not invent statistics, sources, quotations, names, capabilities, guarantees,
 contact details, email addresses, phone numbers, URLs, or user-specific details.
 Do not add claims about performance, confidence,
 time savings, market demand, or technology unless the request supplies them.
+Do not turn a broad business type into specific products, product lines,
+capabilities, capacity, facilities, locations, geographic reach, customers, or
+operational scale unless the request supplies those details. Do not invent
+company history, market position, strategy, initiatives, roadmaps, mission,
+vision, business goals, strengths, R&D, supply-chain operations, customer support,
+partnership availability, or a contact invitation.
 For sparse product briefs, expand the supplied details with clear organization
 and neutral explanations, not invented evidence or business claims. Do not
 repeat metadata labels such as 'Startup name' in slide copy. Make each bullet
@@ -72,11 +79,20 @@ For a product range and a shared set of matching dimensions, group the products
 and dimensions into separate lists. Do not generate a product-by-dimension
 matrix or imply an individual pairing unless the request states one.
 For numeric visualizations use only supplied values; mark illustrative data as
-illustrative only when the schema supports provenance. Keep content concise,
-readable, and consistent with the requested audience and tone."""
+illustrative only when the schema supports provenance. If the user requests a
+chart but supplies no numeric facts, use clearly generic example data, set its
+provenance to illustrative, and label the caption as an example to replace with
+company data. Do not use the deck's slide or chart counts as chart data. Pie and
+doughnut charts must use non-negative values with a positive total. Keep content
+concise, readable, and consistent with the requested audience and tone."""
 
 _CONTACT_PATTERN = re.compile(
     r"(?:\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|\bhttps?://\S+|\bwww\.\S+)",
+    re.IGNORECASE,
+)
+_NUMERIC_VALUE_PATTERN = re.compile(
+    r"(?<![\w])(?P<number>\d[\d,]*(?:\.\d+)?)"
+    r"(?P<suffix>\s*(?:%|k|m|b|thousand|million|billion))?(?![\w])",
     re.IGNORECASE,
 )
 _METADATA_LABEL_PATTERN = re.compile(
@@ -92,6 +108,20 @@ _DIRECTIVE_PATTERN = re.compile(
 _COPY_DIRECTIVE_PREFIX = re.compile(
     r"^\s*(?:please\s+)?(?:create|make|generate|build|prepare|write|produce|"
     r"include|add|cover|show|compare|explain|turn|convert|avoid|ensure)\b",
+    re.IGNORECASE,
+)
+_COUNT_WORDS = (
+    r"\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|"
+    r"eighteen|nineteen|twenty"
+)
+_DECK_STRUCTURE_ECHO_PATTERN = re.compile(
+    rf"\b(?:this|the|our)\s+(?:deck|presentation)\b[^.!?]{{0,80}}"
+    rf"\b(?:{_COUNT_WORDS})\s+(?:slides?|charts?|figures?|visuals?)\b|"
+    rf"\bthere\s+(?:are|is)\b[^.!?]{{0,50}}"
+    rf"\b(?:{_COUNT_WORDS})\s+(?:slides?|charts?|figures?|visuals?)\b|"
+    rf"\b(?:{_COUNT_WORDS})\s+slides?\b[^.!?]{{0,40}}"
+    rf"\b(?:{_COUNT_WORDS})\s+(?:charts?|figures?|visuals?)\b",
     re.IGNORECASE,
 )
 _INSTRUCTION_STOP_WORDS = {
@@ -155,6 +185,11 @@ def _contains_instruction_echo(slide_copy: str, prompt: str) -> bool:
     return False
 
 
+def _contains_deck_structure_echo(slide_copy: str) -> bool:
+    """Catch copy that describes the generated deck's own slide or visual counts."""
+    return bool(_DECK_STRUCTURE_ECHO_PATTERN.search(slide_copy))
+
+
 def _text_leaves(value: Any) -> list[str]:
     if isinstance(value, str):
         return [value]
@@ -180,6 +215,53 @@ def _duplicate_bullet_texts(slide: Slide) -> list[str]:
             duplicates.append(bullet.text)
         seen.add(normalized)
     return duplicates
+
+
+def _numeric_values(text: str) -> set[Decimal]:
+    values: set[Decimal] = set()
+    multipliers = {
+        "k": Decimal(1_000),
+        "thousand": Decimal(1_000),
+        "m": Decimal(1_000_000),
+        "million": Decimal(1_000_000),
+        "b": Decimal(1_000_000_000),
+        "billion": Decimal(1_000_000_000),
+    }
+    for match in _NUMERIC_VALUE_PATTERN.finditer(text):
+        number = Decimal(match.group("number").replace(",", ""))
+        suffix = (match.group("suffix") or "").strip().casefold()
+        values.add(number * multipliers.get(suffix, Decimal(1)))
+    return values
+
+
+def _numeric_data_issue(
+    slide: Slide, analysis: AnalysisOutput, slide_text: str | None = None
+) -> str | None:
+    """Require user-sourced numeric slide data to match an analyzed source fact."""
+    supplied_values = {
+        number for fact in analysis.required_facts for number in _numeric_values(fact.text)
+    }
+    if isinstance(slide, StatSlide):
+        data = [(stat.provenance, stat.value) for stat in slide.stats]
+    elif isinstance(slide, ChartSlide):
+        data = [
+            (slide.provenance, str(value)) for series in slide.series for value in series.values
+        ]
+    else:
+        supplied_text_numbers = {
+            number for fact in analysis.required_facts for number in _numeric_values(fact.text)
+        }
+        unsupported_numbers = _numeric_values(slide_text or "") - supplied_text_numbers
+        if unsupported_numbers:
+            return "generated numeric details were not present in the analyzed required facts"
+        return None
+
+    for provenance, value in data:
+        if provenance == "generated":
+            return "numeric statistics and charts must be user-sourced or marked illustrative"
+        if provenance == "user" and not _numeric_values(value) <= supplied_values:
+            return "user-sourced numeric data was not present in the analyzed required facts"
+    return None
 
 
 def _restore_verbatim_facts(slide: Slide, missing_facts: list[RequiredFact]) -> Slide:
@@ -280,6 +362,10 @@ def _write_one(
                 raise ValueError(
                     "generated slide repeated the user's presentation instructions as slide copy"
                 )
+            if _contains_deck_structure_echo(slide_copy):
+                raise ValueError(
+                    "generated slide described the deck's own slide or visual counts as content"
+                )
             normalized_content = _normalized_phrase(text_content)
             repeated_unassigned = [
                 fact.text
@@ -315,6 +401,9 @@ def _write_one(
                     "generated slide added unsupported details in these categories: "
                     f"{', '.join(unsupported_claims)}"
                 )
+            numeric_data_issue = _numeric_data_issue(slide, analysis, text_content)
+            if numeric_data_issue:
+                raise ValueError(numeric_data_issue)
             missing_verbatim = [
                 fact.id
                 for fact in assigned_facts

@@ -3,11 +3,12 @@ from time import sleep
 
 import pytest
 
-from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
+from app.core.deck_schema import BulletsSlide, ClosingSlide, StatSlide, TitleSlide
 from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact
 from app.pipeline.write_slides import (
     rewrite_slides,
+    _numeric_data_issue,
     write_slides,
 )
 
@@ -21,6 +22,7 @@ class FakeWriter:
         repeat_unassigned_fact_once=False,
         duplicate_bullet_once=False,
         echo_instruction_once=False,
+        echo_deck_structure_once=False,
     ):
         self.calls = []
         self.lock = Lock()
@@ -33,6 +35,7 @@ class FakeWriter:
         self.repeat_unassigned_fact_once = repeat_unassigned_fact_once
         self.duplicate_bullet_once = duplicate_bullet_once
         self.echo_instruction_once = echo_instruction_once
+        self.echo_deck_structure_once = echo_deck_structure_once
 
     def generate(self, output_model, **kwargs):
         with self.lock:
@@ -46,6 +49,7 @@ class FakeWriter:
                 repeated_fact = self.repeat_unassigned_fact_once and bullet_call == 1
                 duplicate_bullet = self.duplicate_bullet_once and bullet_call == 1
                 echo_instruction = self.echo_instruction_once and bullet_call == 1
+                echo_deck_structure = self.echo_deck_structure_once and bullet_call == 1
             else:
                 bullet_call = 0
             if output_model is ClosingSlide:
@@ -65,6 +69,9 @@ class FakeWriter:
                 if echo_instruction:
                     text = "Create a 6-slide deck for an electronics company"
                     second_bullet = "Include charts and figures"
+                elif echo_deck_structure:
+                    text = "This deck has 3 slides and 1 chart."
+                    second_bullet = "Prepare the team"
                 elif invented_offer:
                     second_bullet = "Visit our website for a free sample kit"
                 elif repeated_fact:
@@ -217,6 +224,103 @@ def test_write_slides_retries_when_copy_echoes_presentation_instructions():
     assert result[1].bullets[1].text == "Prepare the team"
     bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
     assert "repeated the user's presentation instructions" in bullet_calls[1]["user_prompt"]
+
+
+def test_write_slides_retries_when_copy_describes_deck_structure_counts():
+    analysis, outline = _inputs()
+    generator = FakeWriter(echo_deck_structure_once=True)
+
+    result = write_slides(
+        "Generate a 3-slide deck and include a chart.",
+        analysis,
+        outline,
+        generator,
+        "test-model",
+    )
+
+    assert generator.bullet_calls == 2
+    assert result[1].bullets[0].text == "Launch is June 1"
+    bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
+    assert "described the deck's own slide or visual counts" in bullet_calls[1]["user_prompt"]
+
+
+def test_user_provenance_stat_must_match_a_supplied_numeric_fact():
+    analysis, _ = _inputs()
+    slide = StatSlide(
+        layout="stat",
+        title="Production capacity",
+        stats=[
+            {
+                "value": "10k units/mo",
+                "label": "Monthly production capacity",
+                "provenance": "user",
+            }
+        ],
+    )
+
+    assert _numeric_data_issue(slide, analysis) == (
+        "user-sourced numeric data was not present in the analyzed required facts"
+    )
+
+
+def test_user_provenance_stat_accepts_scaled_value_from_supplied_fact():
+    analysis, _ = _inputs()
+    analysis = analysis.model_copy(
+        update={
+            "required_facts": [
+                RequiredFact(
+                    id=0,
+                    text="Monthly production capacity is 10,000 units.",
+                    verbatim=True,
+                )
+            ]
+        }
+    )
+    slide = StatSlide(
+        layout="stat",
+        title="Production capacity",
+        stats=[
+            {
+                "value": "10k units/mo",
+                "label": "Monthly production capacity",
+                "provenance": "user",
+            }
+        ],
+    )
+
+    assert _numeric_data_issue(slide, analysis) is None
+
+
+def test_unbacked_numeric_claim_in_text_slide_is_rejected():
+    analysis, _ = _inputs()
+    slide = TitleSlide(
+        layout="title",
+        title="Company Background",
+        subtitle="Founded in 2010",
+    )
+
+    assert _numeric_data_issue(slide, analysis, "Company Background\nFounded in 2010") == (
+        "generated numeric details were not present in the analyzed required facts"
+    )
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Our smartphones and IoT devices.",
+        "The global supply chain reach.",
+        "A monthly production capacity of 10k units.",
+        "Product focus and market presence.",
+        "Strategic initiatives for market expansion.",
+        "Our product line has an R&D focus and broad portfolio.",
+        "Global reach, strong supply chain, and customer support.",
+        "Contact us for a partnership.",
+    ],
+)
+def test_unsupported_company_scope_is_flagged_when_absent_from_prompt(claim):
+    assert "unsupported company scope or operations" in unsupported_claim_categories(
+        claim, "Create a presentation for my electronics company."
+    )
 
 
 @pytest.mark.parametrize(

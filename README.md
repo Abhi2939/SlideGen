@@ -94,11 +94,11 @@ The CLI sends prompts to the configured LLM provider. Generation can fail if the
 
 ## Prompt handling
 
-SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, or business details. If you want a particular audience, slide count, evidence, or contact information included, provide it in the prompt.
+SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, business scope, or business details. The writer retries numeric claims not present in the analyzed facts and common unsupported claims about products, operations, reach, strategy, and company capabilities. If you want a particular audience, slide count, evidence, or contact information included, provide it in the prompt.
 
 The slide writer also checks generated text for email addresses and URLs that were not supplied, and for copied metadata labels such as `Startup name`. A match triggers a retry; if the slide still contains it, generation fails rather than accepting that text.
 
-Deck-format directions such as slide count and requested layouts are treated as instructions, not slide facts. The writer retries when generated copy repeats those directions. If charts or figures are requested, the outline must include the chart and at least one additional visual slide.
+Deck-format directions such as slide count and requested layouts are treated as instructions, not slide facts. The writer retries when generated copy repeats those directions or describes the deck's own slide and visual counts. If charts or figures are requested without numeric source data, charts use example values marked as illustrative and identified as replaceable. The outline must include the chart and at least one additional visual slide.
 
 ## Run the web app locally
 
@@ -231,7 +231,7 @@ Run `ruff check .` and `ruff format --check app tests` for lint and format check
 
 The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including access-code enforcement, queue limits, and rate limiting. They use fake LLM responses and do not require a live API key.
 
-Latest local verification (2026-10-15): **105 tests passed**, Ruff lint and format checks passed, and the project virtual environment has no dependency conflicts. These checks do not exercise live Groq generation. A `/healthz` request to the public Render URL timed out from this workspace, so the current deployment and browser flow remain unverified; use `test.md` as the manual prompt checklist.
+Latest local verification (2026-10-15): **119 tests passed**, Ruff lint and format checks passed, and the project virtual environment has no dependency conflicts. A local Groq run of the historical electronics regression prompt still fails closed after write retries when the model continues to add unsupported company details; the resulting deck is not accepted. Public deployment checks and live browser flow remain unverified because the `/healthz` request could not be completed and the local environment has no Render access code. The Docker image build also remains unverified because Docker Desktop's Linux engine is unavailable. Use `test.md` as the manual prompt checklist.
 
 ## Visual QA
 

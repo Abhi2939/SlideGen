@@ -29,8 +29,15 @@ Check for missing required facts, duplicated points, unsupported factual claims
 or statistics, text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
 paraphrases of them, as supported. Flag only material additions that assert
-new capabilities, guarantees, measurable outcomes, market facts, or evidence
-not present in the request. Treat any email address, phone number, or URL absent
+new product offerings, product categories, company capabilities, facilities,
+manufacturing or production capacity, locations, geographic reach, customer
+segments, company history, market position, strategy, initiatives, roadmaps,
+mission, vision, business goals, strengths, R&D, supply-chain operations,
+customer support, partnership availability, or contact invitations, along with
+guarantees, measurable outcomes, market facts, or evidence not present in the
+request. A broad business type does not establish any particular product
+portfolio, operation, scale, or service area. Treat any email address, phone
+number, or URL absent
 from the request as unsupported. Do not require contact details, financials,
 or fundraising content unless the user requested them. Do not mistake an absent
 optional detail for a missing required fact. For every real
