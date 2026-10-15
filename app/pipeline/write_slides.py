@@ -57,6 +57,10 @@ For investor or fundraising slides, do not invent a raise amount, valuation,
 ownership, runway, revenue, customer or pilot counts, forecasts, or use of funds.
 If the request does not supply a funding amount, use a non-numeric ask or say
 the amount is to be determined.
+An investor-pitch request does not make standard SaaS assumptions factual.
+For unsupported features, integrations, workflows, pricing, traction, team
+credentials, go-to-market plans, or milestones, use a clear placeholder for
+the missing information instead of filling in a plausible example.
 Do not turn a broad business type into specific products, product lines,
 capabilities, capacity, facilities, locations, geographic reach, customers, or
 operational scale unless the request supplies those details. Do not invent

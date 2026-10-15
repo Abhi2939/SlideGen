@@ -35,6 +35,9 @@ such as "Add a verified detail" or "Replace this placeholder" are scaffolding,
 not factual claims; do not ask the writer to replace them with details the user
 did not provide. Chart or statistic values with illustrative provenance and a
 caption that identifies them as examples are not claims about the company.
+For investor decks, explicit placeholders for unsupported traction, team,
+pricing, product features, workflows, and fundraising details are scaffolding;
+do not treat them as unsupported claims or require invented replacements.
 Check for missing required facts, duplicated points, unsupported factual claims
 or statistics, text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
@@ -340,6 +343,7 @@ def review_and_repair_deck(
         raise ValueError("semantic_attempts must be at least 1")
     current_slides = list(slides)
     repair_rounds = 0
+    unsupported_placeholder_repair_attempted = False
 
     while True:
         if progress_callback is not None:
@@ -396,6 +400,27 @@ def review_and_repair_deck(
                 continue
 
         if repair_rounds >= max_repair_rounds:
+            if not unsupported_placeholder_repair_attempted and not review.missing_fact_ids:
+                unsupported_indices = {
+                    index
+                    for issue in review.issues
+                    if issue.category == "unsupported_claim" and issue.severity == "high"
+                    for index in issue.slide_indices
+                }
+                if unsupported_indices:
+                    if progress_callback is not None:
+                        progress_callback("Replacing unsupported claims with placeholders")
+                    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+                    for index in unsupported_indices:
+                        assigned_facts = [
+                            facts_by_id[fact_id]
+                            for fact_id in outline.slides[index].required_fact_ids
+                        ]
+                        current_slides[index] = _placeholder_slide(
+                            outline.slides[index], assigned_facts
+                        )
+                    unsupported_placeholder_repair_attempted = True
+                    continue
             return ReviewRun(current_slides, review, repair_rounds)
 
         if progress_callback is not None:
