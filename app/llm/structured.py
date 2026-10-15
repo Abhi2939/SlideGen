@@ -21,6 +21,18 @@ def _decode_json(content: str) -> Any:
     return json.loads(text)
 
 
+def _is_provider_json_validation_error(exc: LLMProviderError) -> bool:
+    """Return True only when the provider rejected its own generated JSON."""
+    cause = exc.__cause__
+    if getattr(cause, "status_code", None) != 400:
+        return False
+    body = getattr(cause, "body", None)
+    if not isinstance(body, Mapping):
+        return False
+    error = body.get("error")
+    return isinstance(error, Mapping) and error.get("code") == "json_validate_failed"
+
+
 class StructuredGenerator:
     def __init__(self, client: LLMClient, *, max_attempts: int = 2):
         if max_attempts < 1:
@@ -64,13 +76,26 @@ class StructuredGenerator:
                 )
             except LLMProviderError as exc:
                 last_detail = str(exc)
-                # The provider SDK already retries transport and rate-limit
-                # failures. Repeating the same request here can amplify a 429
-                # and consume more of the provider's token budget. Structured
-                # retries below are reserved for responses that arrived but
-                # did not validate.
+                # Groq can reject a completion when its JSON-mode generation
+                # is malformed, before returning any content to parse. Retry
+                # only that specific response-format failure. In particular,
+                # do not repeat 429/quota errors: another request would spend
+                # more of the exhausted provider budget without helping.
                 if exc.__cause__ is not None:
-                    raise StructuredOutputError(stage, attempt, last_detail) from exc
+                    if not _is_provider_json_validation_error(exc) or attempt == self.max_attempts:
+                        raise StructuredOutputError(stage, attempt, last_detail) from exc
+                    messages = [
+                        *messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                "The provider could not produce valid JSON. Retry the same task "
+                                "and return exactly one syntactically valid JSON object that "
+                                "matches the required schema. Do not use markdown or trailing commas."
+                            ),
+                        },
+                    ]
+                    continue
                 if attempt == self.max_attempts:
                     break
                 messages = [

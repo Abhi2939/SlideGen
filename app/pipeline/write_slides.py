@@ -53,6 +53,10 @@ Do not invent statistics, sources, quotations, names, capabilities, guarantees,
 contact details, email addresses, phone numbers, URLs, or user-specific details.
 Do not add claims about performance, confidence,
 time savings, market demand, or technology unless the request supplies them.
+For investor or fundraising slides, do not invent a raise amount, valuation,
+ownership, runway, revenue, customer or pilot counts, forecasts, or use of funds.
+If the request does not supply a funding amount, use a non-numeric ask or say
+the amount is to be determined.
 Do not turn a broad business type into specific products, product lines,
 capabilities, capacity, facilities, locations, geographic reach, customers, or
 operational scale unless the request supplies those details. Do not invent
@@ -546,6 +550,15 @@ def _write_one(
             return slide
         except ValueError as exc:
             last_error = exc
+            if str(exc) == "generated numeric details were not present in the analyzed required facts":
+                correction = (
+                    "\n\nCORRECTION REQUIRED: The previous slide included numeric details "
+                    "that were not supplied in the request or analyzed facts. Remove every "
+                    "unsupported number, percentage, date, amount, count, and time period. "
+                    "State the point in non-numeric language; for an unspecified funding ask, "
+                    "say the amount is to be determined. Regenerate the complete slide."
+                )
+                continue
             correction = (
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
