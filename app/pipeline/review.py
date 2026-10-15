@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Callable
 
-from app.core.deck_schema import Slide
+from app.core.deck_schema import Bullet, BulletsSlide, Slide, TwoColumnSlide
 from app.llm.structured import StructuredGenerator
 from app.pipeline.models import (
     AnalysisOutput,
@@ -63,6 +63,67 @@ class ReviewRun:
     slides: list[Slide]
     review: ReviewOutput
     repair_rounds: int
+
+
+def _remove_reported_duplicate_bullet(slide: Slide, detail: str) -> Slide:
+    """Remove repeated exact bullet text when a review finding identifies it."""
+    match = re.search(
+        r"duplicate bullet(?: point)?\s+['\"]([^'\"]+)['\"]",
+        detail,
+        re.IGNORECASE,
+    )
+    if not match:
+        return slide
+    duplicate_text = " ".join(re.findall(r"[a-z0-9]+", match.group(1).casefold()))
+
+    def keep_first(bullets: list[Bullet]) -> list[Bullet]:
+        kept: list[Bullet] = []
+        seen_reported_text = False
+        for bullet in bullets:
+            normalized = " ".join(re.findall(r"[a-z0-9]+", bullet.text.casefold()))
+            if normalized == duplicate_text:
+                if seen_reported_text:
+                    continue
+                seen_reported_text = True
+            kept.append(bullet)
+        return kept
+
+    if isinstance(slide, BulletsSlide):
+        bullets = keep_first(slide.bullets)
+        if len(bullets) >= 2 and len(bullets) < len(slide.bullets):
+            return slide.model_copy(update={"bullets": bullets})
+    elif isinstance(slide, TwoColumnSlide):
+        left_bullets = keep_first(slide.left.bullets)
+        right_bullets = keep_first(slide.right.bullets)
+        if (
+            len(left_bullets) >= 1
+            and len(right_bullets) >= 1
+            and (
+                len(left_bullets) < len(slide.left.bullets)
+                or len(right_bullets) < len(slide.right.bullets)
+            )
+        ):
+            left = slide.left.model_copy(update={"bullets": left_bullets})
+            right = slide.right.model_copy(update={"bullets": right_bullets})
+            return slide.model_copy(update={"left": left, "right": right})
+    return slide
+
+
+def _repair_reported_duplicate_bullets(
+    slides: list[Slide], review: ReviewOutput
+) -> list[Slide] | None:
+    """Apply safe exact-duplicate repairs and return None when none apply."""
+    repaired = list(slides)
+    changed = False
+    for issue in review.issues:
+        if issue.category != "duplicate":
+            continue
+        for index in issue.slide_indices:
+            replacement = _remove_reported_duplicate_bullet(repaired[index], issue.detail)
+            if replacement is not repaired[index]:
+                repaired[index] = replacement
+                changed = True
+    return repaired if changed else None
 
 
 def _validate_review_references(
@@ -287,6 +348,14 @@ def review_and_repair_deck(
         )
         if review.passed:
             return ReviewRun(current_slides, review, repair_rounds)
+
+        duplicate_repairs = _repair_reported_duplicate_bullets(current_slides, review)
+        if duplicate_repairs is not None and repair_rounds < max_repair_rounds:
+            if progress_callback is not None:
+                progress_callback("Removing repeated bullet text")
+            current_slides = duplicate_repairs
+            repair_rounds += 1
+            continue
 
         if (
             repair_rounds < max_repair_rounds
