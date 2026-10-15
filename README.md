@@ -15,7 +15,7 @@ SlideGen turns a natural-language prompt into a structured presentation, reviews
 
 The web app stores jobs and generated files in SQLite and uses a bounded in-process worker pool. See [Deploy](#deploy) for a public service setup.
 
-The web app is open to anyone who can reach its URL. Job submission is limited by per-IP rate limits and the configured queue capacity.
+The web app is open to anyone who can reach its URL; it has no login or shared access-code gate. Job submission is limited by per-IP rate limits and the configured queue capacity.
 
 ## Requirements
 
@@ -228,7 +228,7 @@ Run `ruff check .` and `ruff format --check app tests` for lint and format check
 
 The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including queue limits and rate limiting. They use fake LLM responses and do not require a live API key.
 
-Latest local verification (2026-10-15): **122 tests passed** on the previous version. The access-code removal has not yet been rerun through the automated suite. Ruff lint and format checks passed previously, and the project virtual environment has no dependency conflicts. Live deployment checks remain unverified because the `/healthz` request could not be completed. The Docker image build also remains unverified because Docker Desktop's Linux engine is unavailable. Use `test.md` as the manual prompt checklist.
+Latest recorded local verification (2026-10-15): **122 tests passed** before the access-code removal. The current commit removes that feature and its tests; the automated suite has not been rerun since that change, so no current test count is claimed. Ruff lint and format checks passed previously, and the project virtual environment had no dependency conflicts. Live deployment checks remain unverified because the `/healthz` request could not be completed. The Docker image build also remains unverified because Docker Desktop's Linux engine was unavailable. Use `test.md` as the manual prompt checklist.
 
 ## Visual QA
 
