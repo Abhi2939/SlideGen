@@ -76,9 +76,11 @@ def _remove_reported_duplicate_bullet(slide: Slide, detail: str) -> Slide:
         return slide
     duplicate_text = " ".join(re.findall(r"[a-z0-9]+", match.group(1).casefold()))
 
+    seen_reported_text = False
+
     def keep_first(bullets: list[Bullet]) -> list[Bullet]:
+        nonlocal seen_reported_text
         kept: list[Bullet] = []
-        seen_reported_text = False
         for bullet in bullets:
             normalized = " ".join(re.findall(r"[a-z0-9]+", bullet.text.casefold()))
             if normalized == duplicate_text:
@@ -95,6 +97,12 @@ def _remove_reported_duplicate_bullet(slide: Slide, detail: str) -> Slide:
     elif isinstance(slide, TwoColumnSlide):
         left_bullets = keep_first(slide.left.bullets)
         right_bullets = keep_first(slide.right.bullets)
+        if not left_bullets or not right_bullets:
+            # Keep the reported point in the column that contains no other
+            # bullets, and remove its repeated copy from the other column.
+            seen_reported_text = False
+            right_bullets = keep_first(slide.right.bullets)
+            left_bullets = keep_first(slide.left.bullets)
         if (
             len(left_bullets) >= 1
             and len(right_bullets) >= 1
