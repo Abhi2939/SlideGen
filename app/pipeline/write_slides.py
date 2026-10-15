@@ -156,6 +156,22 @@ _INSTRUCTION_ALIASES = {
     "pptx": "deck",
     "slides": "slide",
 }
+_GENERIC_BUSINESS_TOKENS = {
+    "a",
+    "an",
+    "brand",
+    "business",
+    "company",
+    "electronics",
+    "firm",
+    "my",
+    "organization",
+    "our",
+    "startup",
+    "tech",
+    "technology",
+    "the",
+}
 
 
 def _instruction_tokens(text: str) -> set[str]:
@@ -188,6 +204,108 @@ def _contains_instruction_echo(slide_copy: str, prompt: str) -> bool:
 def _contains_deck_structure_echo(slide_copy: str) -> bool:
     """Catch copy that describes the generated deck's own slide or visual counts."""
     return bool(_DECK_STRUCTURE_ECHO_PATTERN.search(slide_copy))
+
+
+def _can_use_sparse_company_placeholder(prompt: str, analysis: AnalysisOutput) -> bool:
+    """Use placeholders only when a company prompt gives no specific source facts."""
+    if not re.search(r"\b(?:company|business|startup|brand|firm|organization)\b", prompt, re.I):
+        return False
+    return all(_is_generic_business_fact(fact) for fact in analysis.required_facts)
+
+
+def _is_generic_business_fact(fact: RequiredFact) -> bool:
+    return set(_normalized_phrase(fact.text).split()) <= _GENERIC_BUSINESS_TOKENS
+
+
+def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
+    """Build an explicit, non-factual placeholder matching the planned layout."""
+    fact_texts = [fact.text for fact in facts or []]
+    fallback_titles = {
+        "section": "Section details",
+        "bullets": "Details to supply",
+        "two_column": "Company information",
+        "stat": "Example metric",
+        "process": "Process details",
+        "comparison": "Comparison details",
+        "chart": "Illustrative chart",
+        "quote": "Supplied quotation",
+    }
+    title = plan.title
+    if plan.layout == "closing":
+        title = "Thank you"
+    elif plan.layout in fallback_titles:
+        title = f"{fallback_titles[plan.layout]} {plan.index + 1}"
+    payload: dict[str, Any] = {"layout": plan.layout, "title": title}
+    if plan.layout == "title":
+        payload["subtitle"] = " ".join([*fact_texts, "Add supplied company details here."])
+    elif plan.layout == "section":
+        payload["subtitle"] = " ".join([*fact_texts, "Add verified details for this section."])
+    elif plan.layout == "bullets":
+        bullets = [{"text": text} for text in fact_texts if len(text) <= 160]
+        bullets.extend(
+            [
+                {"text": "Add a verified company detail from the source material."},
+                {"text": "Replace this placeholder with information you provide."},
+            ]
+        )
+        payload["bullets"] = bullets[:6]
+    elif plan.layout == "two_column":
+        payload["left"] = {
+            "heading": "Company details",
+            "bullets": [
+                *[{"text": text} for text in fact_texts[:4] if len(text) <= 160],
+                {"text": "Add a verified detail from the source material."},
+            ],
+        }
+        payload["right"] = {
+            "heading": "Supporting information",
+            "bullets": [{"text": "Replace this placeholder with supplied evidence."}],
+        }
+    elif plan.layout == "stat":
+        payload["stats"] = [
+            {
+                "value": "TBD",
+                "label": "Replace with a verified company metric",
+                "provenance": "illustrative",
+            }
+        ]
+    elif plan.layout == "process":
+        payload["steps"] = [
+            {"title": "Add supplied step", "description": "Replace with a verified detail."},
+            {"title": "Add next step", "description": "Replace with a verified detail."},
+        ]
+    elif plan.layout == "comparison":
+        payload["items"] = [
+            {
+                "name": "Option A",
+                "points": ["Add a supplied comparison point.", "Replace this placeholder."],
+            },
+            {
+                "name": "Option B",
+                "points": ["Add a supplied comparison point.", "Replace this placeholder."],
+            },
+        ]
+    elif plan.layout == "chart":
+        context = " ".join(fact_texts) or "the supplied company context"
+        payload.update(
+            {
+                "chart_type": "bar",
+                "categories": ["Example A", "Example B"],
+                "series": [{"name": "Example values", "values": [60, 40]}],
+                "caption": f"Illustrative example for {context}; replace with supplied company data.",
+                "provenance": "illustrative",
+            }
+        )
+    elif plan.layout == "quote":
+        payload.update(
+            {
+                "quote": "Add a supplied quotation here.",
+                "provenance": "generated",
+            }
+        )
+    elif plan.layout == "closing":
+        payload["subtitle"] = None
+    return SLIDE_MODELS[plan.layout].model_validate(payload)
 
 
 def _text_leaves(value: Any) -> list[str]:
@@ -314,6 +432,11 @@ def _write_one(
     assigned_facts: list[RequiredFact] = [
         facts_by_id[fact_id] for fact_id in plan.required_fact_ids
     ]
+    if _can_use_sparse_company_placeholder(prompt, analysis) and all(
+        _is_generic_business_fact(fact) for fact in assigned_facts
+    ):
+        return _placeholder_slide(plan, assigned_facts)
+
     request = (
         f"Write slide {plan.index + 1} of {len(outline.slides)}.\n"
         f"ORIGINAL USER REQUEST:\n{prompt}\n\n"
@@ -427,6 +550,23 @@ def _write_one(
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
             )
+
+    if (
+        last_error is not None
+        and all(_is_generic_business_fact(fact) for fact in assigned_facts)
+        and _can_use_sparse_company_placeholder(prompt, analysis)
+        and any(
+            marker in str(last_error)
+            for marker in (
+                "unsupported details",
+                "numeric details",
+                "numeric data",
+                "presentation instructions",
+                "deck's own slide or visual counts",
+            )
+        )
+    ):
+        return _placeholder_slide(plan)
 
     assert last_error is not None
     raise ValueError(

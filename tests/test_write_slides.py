@@ -3,12 +3,13 @@ from time import sleep
 
 import pytest
 
-from app.core.deck_schema import BulletsSlide, ClosingSlide, StatSlide, TitleSlide
+from app.core.deck_schema import BulletsSlide, ChartSlide, ClosingSlide, StatSlide, TitleSlide
 from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact
 from app.pipeline.write_slides import (
     rewrite_slides,
     _numeric_data_issue,
+    _placeholder_slide,
     write_slides,
 )
 
@@ -242,6 +243,64 @@ def test_write_slides_retries_when_copy_describes_deck_structure_counts():
     assert result[1].bullets[0].text == "Launch is June 1"
     bullet_calls = [kwargs for model, kwargs in generator.calls if model is BulletsSlide]
     assert "described the deck's own slide or visual counts" in bullet_calls[1]["user_prompt"]
+
+
+def test_sparse_company_prompt_uses_placeholders_without_model_written_claims():
+    analysis = AnalysisOutput(
+        deck_title="Launch plan",
+        deck_type="company presentation",
+        slide_count=3,
+        required_facts=[{"id": 0, "text": "Electronics company", "verbatim": True}],
+    )
+    outline = OutlineOutput(
+        deck_title="Launch plan",
+        slides=[
+            {
+                "index": 0,
+                "title": "Launch plan",
+                "purpose": "Introduce",
+                "layout": "title",
+                "required_fact_ids": [0],
+            },
+            {
+                "index": 1,
+                "title": "Launch date",
+                "purpose": "Present details",
+                "layout": "bullets",
+            },
+            {"index": 2, "title": "Next steps", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+    generator = FakeWriter()
+
+    result = write_slides(
+        "Create a presentation for my electronics company.",
+        analysis,
+        outline,
+        generator,
+        "test-model",
+    )
+
+    assert generator.calls == []
+    assert [bullet.text for bullet in result[1].bullets] == [
+        "Add a verified company detail from the source material.",
+        "Replace this placeholder with information you provide.",
+    ]
+
+
+def test_chart_placeholder_has_unique_title_and_positive_illustrative_values():
+    _, outline = _inputs()
+    chart_plan = outline.slides[1].model_copy(
+        update={"index": 3, "title": "Supplied Details", "layout": "chart"}
+    )
+
+    result = _placeholder_slide(chart_plan)
+
+    assert isinstance(result, ChartSlide)
+    assert result.title == "Illustrative chart 4"
+    assert result.provenance == "illustrative"
+    assert result.caption and "replace with supplied company data" in result.caption
+    assert all(value > 0 for series in result.series for value in series.values)
 
 
 def test_user_provenance_stat_must_match_a_supplied_numeric_fact():

@@ -1,7 +1,7 @@
 import pytest
 
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
-from app.pipeline.models import AnalysisOutput, OutlineOutput, ReviewOutput
+from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact, ReviewOutput
 from app.pipeline.review import review_and_repair_deck, review_deck
 
 
@@ -164,6 +164,55 @@ def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():
     )
     write_call = next(kwargs for _, kwargs in generator.calls if kwargs["stage"] == "write")
     assert "Keep the launch fact and shorten other text." in write_call["user_prompt"]
+
+
+def test_sparse_company_review_replaces_unsupported_copy_with_placeholders():
+    analysis, outline, slides = _inputs()
+    analysis = analysis.model_copy(
+        update={"required_facts": [RequiredFact(id=0, text="Electronics company", verbatim=True)]}
+    )
+    plans = list(outline.slides)
+    plans[0] = plans[0].model_copy(update={"required_fact_ids": []})
+    plans[1] = plans[1].model_copy(update={"required_fact_ids": [0]})
+    outline = outline.model_copy(update={"slides": plans})
+    slides[1] = BulletsSlide(
+        layout="bullets",
+        title="Launch date",
+        bullets=[{"text": "Global reach"}, {"text": "Customer support"}],
+    )
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "unsupported_claim",
+                        "severity": "high",
+                        "detail": "These company details are unsupported.",
+                        "slide_indices": [1],
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            ),
+            ReviewOutput(passed=True),
+        ]
+    )
+
+    result = review_and_repair_deck(
+        "Create a presentation for my electronics company.",
+        analysis,
+        outline,
+        slides,
+        generator,
+        "review-model",
+        "writing-model",
+    )
+
+    assert result.review.passed
+    assert result.repair_rounds == 1
+    assert result.slides[1].title == "Details to supply 2"
+    assert any(bullet.text == "Electronics company" for bullet in result.slides[1].bullets)
+    assert "Global reach" not in str(result.slides[1].model_dump())
 
 
 def test_review_ignores_unsupported_claim_finding_for_grounded_paraphrase():

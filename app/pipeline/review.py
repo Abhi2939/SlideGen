@@ -15,7 +15,12 @@ from app.pipeline.models import (
     validate_outline_facts,
 )
 from app.pipeline.grounding import is_supported_paraphrase
-from app.pipeline.write_slides import rewrite_slides
+from app.pipeline.write_slides import (
+    _can_use_sparse_company_placeholder,
+    _is_generic_business_fact,
+    _placeholder_slide,
+    rewrite_slides,
+)
 
 
 REVIEW_SYSTEM_PROMPT = """You are the quality-review stage of a presentation generator.
@@ -25,6 +30,11 @@ it is not an independent source of facts or requirements. Never ask a writer to
 add an outline point unless it is supported by the original request or required
 facts. Ignore unsupported aspirational outline points such as confidence or
 time-saving claims instead of requiring them in the slides.
+When the brief has no specific company facts, explicit placeholder instructions
+such as "Add a verified detail" or "Replace this placeholder" are scaffolding,
+not factual claims; do not ask the writer to replace them with details the user
+did not provide. Chart or statistic values with illustrative provenance and a
+caption that identifies them as examples are not claims about the company.
 Check for missing required facts, duplicated points, unsupported factual claims
 or statistics, text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
@@ -275,7 +285,40 @@ def review_and_repair_deck(
             max_tokens=max_tokens,
             semantic_attempts=semantic_attempts,
         )
-        if review.passed or repair_rounds >= max_repair_rounds:
+        if review.passed:
+            return ReviewRun(current_slides, review, repair_rounds)
+
+        if (
+            repair_rounds < max_repair_rounds
+            and not review.missing_fact_ids
+            and _can_use_sparse_company_placeholder(prompt, analysis)
+        ):
+            fact_by_id = {fact.id: fact for fact in analysis.required_facts}
+            placeholder_indices = {
+                index
+                for issue in review.issues
+                if issue.category in {"unsupported_claim", "duplicate"}
+                for index in issue.slide_indices
+                if all(
+                    _is_generic_business_fact(fact_by_id[fact_id])
+                    for fact_id in outline.slides[index].required_fact_ids
+                )
+            }
+            if placeholder_indices:
+                if progress_callback is not None:
+                    progress_callback("Replacing unsupported details with placeholders")
+                current_slides = list(current_slides)
+                for index in placeholder_indices:
+                    assigned_facts = [
+                        fact_by_id[fact_id] for fact_id in outline.slides[index].required_fact_ids
+                    ]
+                    current_slides[index] = _placeholder_slide(
+                        outline.slides[index], assigned_facts
+                    )
+                repair_rounds += 1
+                continue
+
+        if repair_rounds >= max_repair_rounds:
             return ReviewRun(current_slides, review, repair_rounds)
 
         if progress_callback is not None:
