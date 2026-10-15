@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import hmac
 import ipaddress
 from pathlib import Path
 import threading
 import time
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
 
 from app.api.model import CreateJobRequest, CreateJobResponse, JobStatusResponse
@@ -60,15 +59,6 @@ def _client_address(request: Request) -> str:
     return request.client.host
 
 
-def _require_access_code(
-    request: Request,
-    access_code: str | None = Header(default=None, alias="X-Access-Code"),
-) -> None:
-    expected = request.app.state.access_code
-    if expected and (access_code is None or not hmac.compare_digest(access_code, expected)):
-        raise HTTPException(status_code=401, detail="A valid access code is required.")
-
-
 @router.get("/healthz")
 def healthz() -> dict[str, bool]:
     return {"ok": True}
@@ -82,7 +72,6 @@ def healthz() -> dict[str, bool]:
 def create_job(
     payload: CreateJobRequest,
     request: Request,
-    _: None = Depends(_require_access_code),
 ) -> CreateJobResponse:
     if not request.app.state.rate_limiter.allow(_client_address(request)):
         raise HTTPException(
@@ -101,7 +90,6 @@ def create_job(
 def get_job(
     job_id: str,
     request: Request,
-    _: None = Depends(_require_access_code),
 ) -> JobStatusResponse:
     job = request.app.state.runner.store.get(job_id)
     if job is None:
@@ -119,7 +107,6 @@ def get_job(
 def download_job(
     job_id: str,
     request: Request,
-    _: None = Depends(_require_access_code),
 ) -> FileResponse:
     job = request.app.state.runner.store.get(job_id)
     if job is None:

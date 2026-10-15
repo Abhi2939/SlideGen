@@ -14,10 +14,6 @@ services:
     envVars:
       - key: GROQ_API_KEY
         sync: false
-      - key: SLIDEGEN_ACCESS_CODE
-        generateValue: true
-      - key: SLIDEGEN_REQUIRE_ACCESS_CODE
-        value: "true"
       - key: SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER
         value: "true"
       - key: SLIDEGEN_DATA_DIR

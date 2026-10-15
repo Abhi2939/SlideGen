@@ -68,52 +68,6 @@ def test_root_serves_presentation_studio_page(tmp_path):
         response = client.get("/")
     assert response.status_code == 200
     assert "Good ideas deserve a great deck." in response.text
-    assert 'id="access-code"' in response.text
-    assert "slidegenAccessCode" in response.text
-    assert "X-Access-Code" in response.text
-
-
-def test_access_code_protects_job_endpoints_and_leaves_health_public(tmp_path):
-    app, _, _ = make_app(tmp_path, access_code="client-secret")
-    with TestClient(app) as client:
-        assert client.get("/healthz").status_code == 200
-        assert (
-            client.post("/api/jobs", json={"prompt": "Create a protected deck"}).status_code == 401
-        )
-        assert client.get("/api/jobs/unknown").status_code == 401
-        assert client.get("/api/jobs/unknown/download").status_code == 401
-
-        bad = client.post(
-            "/api/jobs",
-            json={"prompt": "Create a protected deck"},
-            headers={"X-Access-Code": "wrong"},
-        )
-        assert bad.status_code == 401
-        assert "valid access code" in bad.json()["detail"]
-
-        headers = {"X-Access-Code": "client-secret"}
-        created = client.post(
-            "/api/jobs",
-            json={"prompt": "Create a protected deck"},
-            headers=headers,
-        )
-        assert created.status_code == 202
-        job_id = created.json()["id"]
-        deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            status_response = client.get(f"/api/jobs/{job_id}", headers=headers)
-            if status_response.json()["status"] == "done":
-                break
-            time.sleep(0.01)
-        assert status_response.json()["status"] == "done"
-        assert client.get(f"/api/jobs/{job_id}/download", headers=headers).status_code == 200
-
-
-def test_required_access_code_must_be_configured(tmp_path, monkeypatch):
-    monkeypatch.setenv("SLIDEGEN_REQUIRE_ACCESS_CODE", "true")
-    monkeypatch.delenv("SLIDEGEN_ACCESS_CODE", raising=False)
-    with pytest.raises(ValueError, match="SLIDEGEN_ACCESS_CODE is required"):
-        create_app(data_dir=tmp_path)
 
 
 @pytest.mark.parametrize(

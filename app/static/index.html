@@ -45,8 +45,6 @@
     .label-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 9px; }
     label { font-size: 13px; font-weight: 700; }
     .hint { color: var(--muted); font-size: 12px; }
-    input[type="password"] { width: 100%; min-height: 43px; margin-bottom: 20px; padding: 10px 12px; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 9px; font: inherit; font-size: 14px; }
-    input[type="password"]:focus { border-color: #719582; outline: none; box-shadow: 0 0 0 3px rgba(113,149,130,.16); }
     textarea { width: 100%; color: var(--ink); background: #fff; border: 1px solid var(--line); border-radius: 10px; font: inherit; outline: none; transition: border-color .15s, box-shadow .15s; }
     textarea:focus { border-color: #719582; box-shadow: 0 0 0 3px rgba(113,149,130,.16); }
     textarea { min-height: 142px; padding: 14px 15px; resize: vertical; font-size: 15px; line-height: 1.55; }
@@ -102,12 +100,6 @@
       <section class="studio" aria-label="Create a presentation">
         <form id="job-form">
           <div class="label-row">
-            <label for="access-code">Access code</label>
-            <span class="hint">Provided by your host</span>
-          </div>
-          <input id="access-code" type="password" autocomplete="current-password" placeholder="Enter access code if required">
-
-          <div class="label-row">
             <label for="prompt">What should your presentation cover?</label>
             <span class="hint" id="char-count">0 / 4000</span>
           </div>
@@ -145,7 +137,6 @@
   <script>
     const form = document.getElementById('job-form');
     const promptField = document.getElementById('prompt');
-    const accessCodeField = document.getElementById('access-code');
     const button = document.getElementById('generate');
     const buttonLabel = document.getElementById('button-label');
     const buttonIcon = document.getElementById('button-icon');
@@ -155,18 +146,6 @@
     const downloadLink = document.getElementById('download-link');
     const charCount = document.getElementById('char-count');
     const pollIntervalMs = 2000;
-
-    accessCodeField.value = sessionStorage.getItem('slidegenAccessCode') || '';
-    accessCodeField.addEventListener('input', () => {
-      sessionStorage.setItem('slidegenAccessCode', accessCodeField.value);
-    });
-
-    function requestHeaders(extra = {}) {
-      const headers = { ...extra };
-      const accessCode = accessCodeField.value.trim();
-      if (accessCode) headers['X-Access-Code'] = accessCode;
-      return headers;
-    }
 
     promptField.addEventListener('input', () => {
       charCount.textContent = `${promptField.value.length} / 4000`;
@@ -203,9 +182,7 @@
       const startedAt = Date.now();
       while (true) {
         await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
-        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
-          headers: requestHeaders(),
-        });
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
         if (!response.ok) throw new Error(await responseDetail(response));
         const job = await response.json();
         if (job.status === 'done') {
@@ -229,7 +206,7 @@
     downloadLink.addEventListener('click', async (event) => {
       event.preventDefault();
       try {
-        const response = await fetch(downloadLink.href, { headers: requestHeaders() });
+        const response = await fetch(downloadLink.href);
         if (!response.ok) throw new Error(await responseDetail(response));
         const objectUrl = URL.createObjectURL(await response.blob());
         const temporaryLink = document.createElement('a');
@@ -256,7 +233,7 @@
       try {
         const response = await fetch('/api/jobs', {
           method: 'POST',
-          headers: requestHeaders({ 'Content-Type': 'application/json' }),
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt }),
         });
         if (!response.ok) throw new Error(await responseDetail(response));
