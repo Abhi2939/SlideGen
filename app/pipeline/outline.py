@@ -13,22 +13,33 @@ Create a clear sequence of slides for the supplied deck brief. Return exactly
 the requested number of slides, indexed from 0. Slide 0 must use the title
 layout and its title must equal deck_title. Use only supported layouts:
 title, section, bullets, two_column, stat, process, comparison, chart, quote,
-closing. Assign every required fact ID to one or more relevant slides; do not
+closing, ask_allocation, market_snapshot, flow_steps, quadrants. Route a funding
+ask or budget split to ask_allocation; market size, growth, segments, and drivers
+to market_snapshot; a conceptual user journey or ordered workflow to flow_steps;
+and a competitor or ecosystem landscape to quadrants with exactly four groups.
+Choose layouts by content, not slide order. Assign every required fact ID to one or more relevant slides; do not
 omit or invent IDs. Use key_points to guide later slide writing. Choose layouts
 that fit each slide's purpose, avoid repeating points, and do not invent data
 or quotations. When the request asks for charts or figures, include at least
-two visual slides using chart, stat, or process layouts. Explicit requests for
-process, stat, comparison, or quote slides must be reflected in the outline.
+two visual slides using chart, stat, process, flow_steps, or market_snapshot
+layouts. Explicit requests for process, stats, comparisons, quotations, market
+snapshots, or competitive landscapes must be reflected in the outline.
 Use section only for a brief divider with a visible subtitle. Do not add contact details, email addresses, phone numbers, or
 URLs unless the user supplied them. Do not add traction, market-size, financial,
 or fundraising slides unless the user explicitly requests an investor deck or
-supplies those details. For a sparse product description, build a concise
-product introduction around the supplied details rather than inventing a
-company story or proof points. Use the extracted brand name as the deck title
+supplies those details. For a sparse product description, build a complete,
+concise introduction using qualitative structure and clearly marked conceptual
+framing, without inventing company proof points. For broad non-company topics,
+use useful general knowledge and qualitative explanations; do not invent
+precise numbers, named sources, or current claims. Use the extracted brand name as the deck title
 and a supplied slogan as its subtitle when appropriate; do not repeat metadata
-labels as presentation copy. Every key point must be supported by the original
-request or an analyzed required fact. The analyzed brief and outline are
-planning aids, not evidence. Do not infer product mechanisms, technology,
+labels as presentation copy. Every specific factual key point must be supported
+by the original request or an analyzed required fact. Qualitative structure,
+generic workflow steps, value-proposition headings, audience framing, and
+competitor categories may be inferred; mark inferred workflows as conceptual.
+For broad non-company topics, timeless general-knowledge explanations are
+acceptable as qualitative content, without fabricated statistics or sources.
+The analyzed brief and outline are planning aids, not evidence. Do not infer technology,
 manufacturing methods, fulfillment or shipping, customer behavior, market
 facts, or outcomes from a product description. For example, a custom-blended
 product description does not establish that blending happens in-house, that
@@ -47,11 +58,22 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
     grounded_slides = []
 
     for plan in outline.slides:
+        allow_structure = plan.layout == "flow_steps"
         unsupported = unsupported_claim_categories(
-            "\n".join([plan.title, plan.purpose, *plan.key_points]), prompt
+            "\n".join([plan.title, plan.purpose, *plan.key_points]),
+            prompt,
+            allow_structural_inference=allow_structure,
+            allow_problem_framing=True,
         )
         safe_points = [
-            point for point in plan.key_points if not unsupported_claim_categories(point, prompt)
+            point
+            for point in plan.key_points
+            if not unsupported_claim_categories(
+                point,
+                prompt,
+                allow_structural_inference=allow_structure,
+                allow_problem_framing=True,
+            )
         ]
         changes = bool(unsupported) or len(safe_points) != len(plan.key_points)
         title = plan.title
@@ -98,7 +120,10 @@ def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
     if re.search(r"\bcharts?\b", requested) and "chart" not in layouts:
         raise ValueError("the request explicitly asks for a chart slide")
     if re.search(r"\b(?:charts?|figures?|graphs?|visualizations?)\b", requested):
-        visual_count = sum(layout in {"chart", "stat", "process"} for layout in layouts)
+        visual_count = sum(
+            layout in {"chart", "stat", "process", "flow_steps", "market_snapshot"}
+            for layout in layouts
+        )
         if visual_count < 2:
             raise ValueError("a request for charts or figures needs at least two visual slides")
     for keyword, layout in (
@@ -109,6 +134,35 @@ def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
     ):
         if re.search(keyword, requested) and layout not in layouts:
             raise ValueError(f"the request explicitly asks for a {layout} slide")
+    for keyword, layout in (
+        (
+            r"\b(?:fund(?:ing)? ask|fund allocation|use of funds|budget split|fundraising ask)\b",
+            "ask_allocation",
+        ),
+        (r"\bmarket snapshot\b", "market_snapshot"),
+        (r"\b(?:competitive landscape|competitor landscape)\b", "quadrants"),
+        (r"\bflow steps\b", "flow_steps"),
+    ):
+        if re.search(keyword, requested) and layout not in layouts:
+            raise ValueError(f"the request explicitly asks for a {layout} slide")
+    if re.search(r"\b(?:workflow|user journey|how it works)\b", requested) and not (
+        {"flow_steps", "process"} & set(layouts)
+    ):
+        raise ValueError("the requested workflow needs a flow_steps or process slide")
+    if (
+        re.search(
+            r"\b(?:market size|market growth|market drivers|market segments|market analysis|cagr)\b|"
+            r"\b(?:include|add|cover|analyze)\s+market\b",
+            requested,
+        )
+        and "market_snapshot" not in layouts
+    ):
+        raise ValueError("the requested market analysis needs a market_snapshot slide")
+    if (
+        re.search(r"\b(?:competitors?|alternatives|ecosystem)\b", requested)
+        and "quadrants" not in layouts
+    ):
+        raise ValueError("the requested competitor or ecosystem view needs a quadrants slide")
     if re.search(r"\bclosing slide\b", requested) and layouts[-1] != "closing":
         raise ValueError("the request asks for a closing slide, which must be last")
 

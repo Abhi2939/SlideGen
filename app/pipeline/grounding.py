@@ -61,6 +61,12 @@ UNSUPPORTED_CLAIM_PATTERNS = {
     ),
 }
 
+_TIER3_MARKET_PATTERN = re.compile(
+    r"\bmarket\s+(?:size|share|demand|growth)\b|"
+    r"\bresearch\s+(?:shows|suggests|finds)\b",
+    re.IGNORECASE,
+)
+
 _PARAPHRASE_STOP_WORDS = {
     "a",
     "an",
@@ -128,11 +134,31 @@ def is_supported_paraphrase(claim: str, source_text: str) -> bool:
     )
 
 
-def unsupported_claim_categories(text: str, source_text: str) -> list[str]:
-    """Return common factual claim categories found only in generated text."""
+def unsupported_claim_categories(
+    text: str,
+    source_text: str,
+    *,
+    allow_structural_inference: bool = False,
+    allow_problem_framing: bool = False,
+) -> list[str]:
+    """Return common unsupported claim categories found in generated text.
+
+    Workflow slides may use qualitative conceptual steps, so assessment and
+    selection wording is allowed there. Specific technology, operations,
+    shipping, and market claims remain guarded.
+    """
     source = source_text.casefold()
+    allowed_categories = (
+        {"assessment or diagnostic processes", "shade selection processes"}
+        if allow_structural_inference
+        else set()
+    )
+    if allow_problem_framing and not _TIER3_MARKET_PATTERN.search(text):
+        allowed_categories.add("unsupported market or consumer behavior")
     return [
         category
         for category, pattern in UNSUPPORTED_CLAIM_PATTERNS.items()
-        if pattern.search(text) and not pattern.search(source)
+        if category not in allowed_categories
+        and pattern.search(text)
+        and not pattern.search(source)
     ]

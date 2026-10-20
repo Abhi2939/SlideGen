@@ -76,3 +76,33 @@ def test_blush_brand_theme_renders_editable_cosmetic_art(tmp_path):
     for slide in (presentation.slides[0], presentation.slides[2]):
         texts = [shape.text for shape in slide.shapes if shape.has_text_frame]
         assert {"FOUNDATION", "LIPSTICK", "SKINCARE"} <= set(texts)
+
+
+def test_reference_layout_fixture_renders_charts_tables_and_groups(tmp_path):
+    deck = Deck.model_validate(
+        json.loads((FIXTURES / "reference_layouts.json").read_text(encoding="utf-8"))
+    )
+    out = build_deck(deck, tmp_path / "reference-layouts.pptx", strict=True)
+    presentation = Presentation(str(out))
+
+    assert len(presentation.slides) == 6
+    allocation = presentation.slides[1]
+    assert any(shape.has_chart for shape in allocation.shapes)
+    assert any("85.30%" in shape.text for shape in allocation.shapes if shape.has_text_frame)
+    market = presentation.slides[2]
+    assert any(shape.has_table for shape in market.shapes)
+    text = "\n".join(
+        shape.text
+        for slide in presentation.slides
+        for shape in slide.shapes
+        if shape.has_text_frame
+    )
+    assert "How it works" in text
+    assert "Mobile wallets" in text
+    assert "Visa" in text
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            assert shape.left >= 0
+            assert shape.top >= 0
+            assert shape.left + shape.width <= presentation.slide_width
+            assert shape.top + shape.height <= presentation.slide_height

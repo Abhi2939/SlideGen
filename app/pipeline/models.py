@@ -18,6 +18,10 @@ LayoutName = Literal[
     "chart",
     "quote",
     "closing",
+    "ask_allocation",
+    "market_snapshot",
+    "flow_steps",
+    "quadrants",
 ]
 
 

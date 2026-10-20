@@ -110,7 +110,10 @@ def test_outline_retries_semantic_failure_and_includes_correction():
     assert len(generator.calls) == 2
     assert "omits required fact IDs" in generator.calls[1][1]["user_prompt"]
     assert "Do not add contact details" in generator.calls[0][1]["system_prompt"]
-    assert "Every key point must be supported" in generator.calls[0][1]["system_prompt"]
+    assert (
+        "Every specific factual key point must be supported"
+        in generator.calls[0][1]["system_prompt"]
+    )
     assert "planning aids, not evidence" in generator.calls[0][1]["system_prompt"]
     assert "customer behavior" in generator.calls[0][1]["system_prompt"]
 
@@ -142,6 +145,54 @@ def test_outline_honors_explicit_layout_requests():
         _validate_requested_layouts("Add a process slide", outline)
 
 
+def test_outline_requires_reference_layouts_when_explicitly_requested():
+    outline = _outline()
+    with pytest.raises(ValueError, match="ask_allocation"):
+        _validate_requested_layouts("Include a fund allocation slide", outline)
+    with pytest.raises(ValueError, match="quadrants"):
+        _validate_requested_layouts("Include a competitive landscape", outline)
+
+
+def test_reference_prompt_matrix_routes_content_to_reference_layouts():
+    acme = OutlineOutput(
+        deck_title="Acme Pay",
+        slides=[
+            {"index": 0, "title": "Acme Pay", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "The Ask",
+                "purpose": "Funding split",
+                "layout": "ask_allocation",
+            },
+            {
+                "index": 2,
+                "title": "Market",
+                "purpose": "Market metrics",
+                "layout": "market_snapshot",
+            },
+            {"index": 3, "title": "Journey", "purpose": "Conceptual steps", "layout": "flow_steps"},
+            {"index": 4, "title": "Landscape", "purpose": "Categories", "layout": "quadrants"},
+            {"index": 5, "title": "Close", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+    _validate_requested_layouts(
+        "Acme Pay raising Rs 14 Cr. Use of funds and include market, how it works, "
+        "and competitive landscape.",
+        acme,
+    )
+
+    fintech = _outline()
+    with pytest.raises(ValueError, match="market_snapshot"):
+        _validate_requested_layouts("FinFlow market size, CAGR and growth drivers", fintech)
+
+    blush = _outline()
+    with pytest.raises(ValueError, match="workflow"):
+        _validate_requested_layouts("Blush: explain how it works", blush)
+
+    dogs = _outline()
+    _validate_requested_layouts("Make a deck about dogs", dogs)
+
+
 @pytest.mark.parametrize(
     "prompt,claim",
     [
@@ -161,6 +212,22 @@ def test_outline_honors_explicit_layout_requests():
 )
 def test_grounding_allows_claim_categories_already_in_source(prompt, claim):
     assert unsupported_claim_categories(claim, prompt) == []
+
+
+def test_tier_two_problem_framing_is_allowed_but_market_figures_remain_guarded():
+    assert (
+        unsupported_claim_categories(
+            "Customers often struggle to compare available options.",
+            "Create a product introduction.",
+            allow_problem_framing=True,
+        )
+        == []
+    )
+    assert unsupported_claim_categories(
+        "Market growth is accelerating.",
+        "Create a market overview.",
+        allow_problem_framing=True,
+    ) == ["unsupported market or consumer behavior"]
 
 
 def test_grounded_outline_does_not_use_full_request_as_fallback_key_point():
@@ -211,6 +278,30 @@ def test_outline_replaces_unsupported_process_points_with_assigned_facts():
     assert process_replacement.layout == "bullets"
     assert process_replacement.title == "Product Details"
     assert process_replacement.key_points == ["Launch is June 1"]
+
+
+def test_flow_outline_allows_conceptual_assessment_and_selection_steps():
+    analysis = _analysis()
+    outline = OutlineOutput(
+        deck_title="Launch plan",
+        slides=[
+            {"index": 0, "title": "Launch plan", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "Suggested journey",
+                "purpose": "Explain conceptual steps",
+                "layout": "flow_steps",
+                "key_points": ["Assess needs", "Select an option"],
+                "required_fact_ids": [0],
+            },
+            {"index": 2, "title": "Next steps", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    result = _ground_outline("Make a launch deck", analysis, outline)
+
+    assert result.slides[1].layout == "flow_steps"
+    assert result.slides[1].key_points == ["Assess needs", "Select an option"]
 
 
 def test_outline_uses_compact_branded_beauty_structure_without_more_llm_calls():

@@ -23,3 +23,13 @@ evals/outputs/
 .DS_Store
 Thumbs.db
 
+# Keep only the repository README; ignore other Markdown files.
+*.md
+!README.md
+
+# Reference images
+/expected pics/
+
+# Local screenshot comparisons for reference-layout visual QA
+/golden/
+

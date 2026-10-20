@@ -1,4 +1,16 @@
-from . import bullets, chart, closing, comparison, process, quote, section, stat, title, two_column
+from . import (
+    bullets,
+    chart,
+    closing,
+    comparison,
+    process,
+    quote,
+    reference,
+    section,
+    stat,
+    title,
+    two_column,
+)
 
 LAYOUT_RENDERERS = {
     "title": title.render,
@@ -11,4 +23,5 @@ LAYOUT_RENDERERS = {
     "comparison": comparison.render,
     "quote": quote.render,
     "closing": closing.render,
+    **reference.RENDERERS,
 }

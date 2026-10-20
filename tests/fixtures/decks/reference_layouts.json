@@ -1,0 +1,63 @@
+{
+  "title": "Reference Layouts",
+  "slides": [
+    {"layout": "title", "title": "Reference Layouts"},
+    {
+      "layout": "ask_allocation",
+      "title": "Ask and Allocation",
+      "ask": "₹14 Cr",
+      "items": [
+        {"label": "Contingency / Buffer", "pct": 85.3},
+        {"label": "Other indirect expenses", "pct": 6.94},
+        {"label": "Team", "pct": 3.02},
+        {"label": "Marketing", "pct": 2.57},
+        {"label": "Direct expenses", "pct": 1.95},
+        {"label": "Capex", "pct": 0.22}
+      ]
+    },
+    {
+      "layout": "market_snapshot",
+      "title": "Global FinTech Market",
+      "subtitle": "CAGR: 15.27%",
+      "start_label": "2025",
+      "start_value": "USD 320.81 Bn",
+      "end_label": "2030",
+      "end_value": "USD 652.80 Bn",
+      "segments": [
+        {"category": "Service", "lead_text": "Digital payments lead", "lead_value": "46.2%", "next_text": "Neo banking fastest-growing", "next_value": "CAGR 18.7%"},
+        {"category": "End-user", "lead_text": "Retail dominates", "lead_value": "62.1%", "next_text": "Business grows faster", "next_value": "CAGR 16.5%"},
+        {"category": "Interface", "lead_text": "Mobile apps lead", "lead_value": "57.8%", "next_text": "POS / IoT grows faster", "next_value": "CAGR 17.9%"},
+        {"category": "Region", "lead_text": "APAC largest", "lead_value": "44.86%", "next_text": "Growth outlook", "next_value": "CAGR 16.02%"}
+      ],
+      "table_headers": ["Driver", "Impact", "Geographic relevance", "Timeline"],
+      "table_rows": [
+        ["Real-time payments", "+2.5%", "North America, Europe, Asia-Pacific", "Medium term"],
+        ["Open-banking standards", "+2.2%", "Europe, South America", "Long term"]
+      ]
+    },
+    {
+      "layout": "flow_steps",
+      "title": "How it works",
+      "tagline": "Fast, secure, scalable and sustainable",
+      "subtitle": "A conceptual customer journey",
+      "steps": [
+        {"title": "Start", "detail": "Begin the process"},
+        {"title": "Share details"},
+        {"title": "Review options"},
+        {"title": "Confirm"},
+        {"title": "Complete"}
+      ]
+    },
+    {
+      "layout": "quadrants",
+      "title": "Competitive Landscape",
+      "quadrants": [
+        {"heading": "Mobile wallets", "names": ["Ziin", "UPI", "PayBy"]},
+        {"heading": "Cards", "names": ["Emirates NBD", "ADCB", "Visa"]},
+        {"heading": "Blockchain network", "names": ["Qashio", "Polygon", "WazirX"]},
+        {"heading": "Biometric and physical payments", "names": ["PayByFace", "ADIB"]}
+      ]
+    },
+    {"layout": "closing", "title": "Thank You"}
+  ]
+}

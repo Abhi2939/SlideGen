@@ -30,6 +30,16 @@ it is not an independent source of facts or requirements. Never ask a writer to
 add an outline point unless it is supported by the original request or required
 facts. Ignore unsupported aspirational outline points such as confidence or
 time-saving claims instead of requiring them in the slides.
+Apply three grounding tiers. Preserve Tier 1 user facts. Allow Tier 2 qualitative
+structure such as generic problem/solution framing, conceptual workflow steps,
+value-proposition headings, audience framing, competitor categories, and
+timeless general-knowledge explanations for non-company topics. When
+not user-supplied, these must be presented as suggestions or categories, not as
+confirmed company capabilities. Never invent Tier 3 details: specific names,
+market facts, statistics, percentages, prices, traction, team credentials,
+funding amounts, and named competitors must come from the request or be clearly
+marked as placeholders/illustrative where appropriate. Do not flag clearly
+conceptual Tier 2 framing as an unsupported fact.
 When the brief has no specific company facts, explicit placeholder instructions
 such as "Add a verified detail" or "Replace this placeholder" are scaffolding,
 not factual claims; do not ask the writer to replace them with details the user
@@ -38,18 +48,12 @@ caption that identifies them as examples are not claims about the company.
 For investor decks, explicit placeholders for unsupported traction, team,
 pricing, product features, workflows, and fundraising details are scaffolding;
 do not treat them as unsupported claims or require invented replacements.
-Check for missing required facts, duplicated points, unsupported factual claims
-or statistics, text likely to overflow, and coherence across slides. Treat the
+Check for missing required facts, duplicated points, Tier 3 grounding violations,
+text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
-paraphrases of them, as supported. Flag only material additions that assert
-new product offerings, product categories, company capabilities, facilities,
-manufacturing or production capacity, locations, geographic reach, customer
-segments, company history, market position, strategy, initiatives, roadmaps,
-mission, vision, business goals, strengths, R&D, supply-chain operations,
-customer support, partnership availability, or contact invitations, along with
-guarantees, measurable outcomes, market facts, or evidence not present in the
-request. A broad business type does not establish any particular product
-portfolio, operation, scale, or service area. Treat any email address, phone
+paraphrases of them, as supported. Do not treat a broad business type as
+evidence of a specific product portfolio, operation, scale, or service area.
+Treat any email address, phone
 number, or URL absent
 from the request as unsupported. Do not require contact details, financials,
 or fundraising content unless the user requested them. Do not mistake an absent

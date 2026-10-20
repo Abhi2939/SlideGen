@@ -122,3 +122,47 @@ def test_chart_requires_provenance():
     del bad["provenance"]
     with pytest.raises(ValidationError):
         Deck.model_validate(_deck(bad))
+
+
+def test_allocation_layout_rejects_non_totaling_percentages():
+    slide = {
+        "layout": "ask_allocation",
+        "title": "The Ask",
+        "items": [
+            {"label": "Product", "pct": 60},
+            {"label": "Operations", "pct": 20},
+        ],
+    }
+    with pytest.raises(ValidationError, match="total approximately 100"):
+        Deck.model_validate(_deck(slide))
+
+
+def test_market_snapshot_table_rows_must_match_headers():
+    slide = {
+        "layout": "market_snapshot",
+        "title": "Market",
+        "table_headers": ["Driver", "Impact"],
+        "table_rows": [["Payments"]],
+    }
+    with pytest.raises(ValidationError, match="match the header count"):
+        Deck.model_validate(_deck(slide))
+
+
+def test_reference_flow_requires_at_least_three_steps():
+    slide = {
+        "layout": "flow_steps",
+        "title": "How it works",
+        "steps": [{"title": "Start"}, {"title": "Finish"}],
+    }
+    with pytest.raises(ValidationError):
+        Deck.model_validate(_deck(slide))
+
+
+def test_quadrant_layout_requires_exactly_four_groups():
+    slide = {
+        "layout": "quadrants",
+        "title": "Landscape",
+        "quadrants": [{"heading": "Wallets"}] * 3,
+    }
+    with pytest.raises(ValidationError):
+        Deck.model_validate(_deck(slide))

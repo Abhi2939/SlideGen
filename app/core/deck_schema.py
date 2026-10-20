@@ -134,6 +134,81 @@ class ClosingSlide(_SlideBase):
     contact: str | None = Field(default=None, max_length=100)
 
 
+class AllocationItem(_Model):
+    label: str = Field(min_length=1, max_length=40)
+    pct: float | None = Field(default=None, ge=0, le=100)
+
+
+class AskAllocationSlide(_SlideBase):
+    layout: Literal["ask_allocation"]
+    ask: str | None = Field(default=None, max_length=40)
+    center_label: str = Field(default="Fund Allocation", max_length=40)
+    items: list[AllocationItem] = Field(min_length=2, max_length=7)
+
+    @model_validator(mode="after")
+    def _allocation_total(self):
+        values = [item.pct for item in self.items]
+        supplied = [value for value in values if value is not None]
+        total = sum(supplied)
+        if total > 100:
+            raise ValueError("allocation percentages cannot exceed 100")
+        if len(supplied) == len(values) and not 99 <= total <= 101:
+            raise ValueError("complete allocation percentages must total approximately 100")
+        if len(supplied) != len(values) and total >= 100:
+            raise ValueError("missing allocation percentages need a remaining share")
+        return self
+
+
+class MarketSegment(_Model):
+    category: str = Field(min_length=1, max_length=30)
+    lead_text: str = Field(min_length=1, max_length=70)
+    lead_value: str | None = Field(default=None, max_length=30)
+    next_text: str = Field(min_length=1, max_length=70)
+    next_value: str | None = Field(default=None, max_length=30)
+
+
+class MarketSnapshotSlide(_SlideBase):
+    layout: Literal["market_snapshot"]
+    subtitle: str | None = Field(default=None, max_length=100)
+    start_label: str = Field(default="2025", max_length=20)
+    start_value: str | None = Field(default=None, max_length=40)
+    end_label: str = Field(default="2030", max_length=20)
+    end_value: str | None = Field(default=None, max_length=40)
+    segments: list[MarketSegment] = Field(default_factory=list, max_length=4)
+    table_headers: list[str] = Field(default_factory=list, max_length=5)
+    table_rows: list[list[str]] = Field(default_factory=list, max_length=7)
+
+    @model_validator(mode="after")
+    def _table_shape(self):
+        if bool(self.table_headers) != bool(self.table_rows):
+            raise ValueError("market table headers and rows must be supplied together")
+        if any(len(row) != len(self.table_headers) for row in self.table_rows):
+            raise ValueError("each market table row must match the header count")
+        return self
+
+
+class FlowStep(_Model):
+    title: str = Field(min_length=1, max_length=50)
+    detail: str | None = Field(default=None, max_length=120)
+
+
+class FlowStepsSlide(_SlideBase):
+    layout: Literal["flow_steps"]
+    tagline: str | None = Field(default=None, max_length=100)
+    subtitle: str | None = Field(default=None, max_length=100)
+    steps: list[FlowStep] = Field(min_length=3, max_length=8)
+
+
+class Quadrant(_Model):
+    heading: str = Field(min_length=1, max_length=40)
+    names: list[str] = Field(default_factory=list, max_length=9)
+
+
+class QuadrantsSlide(_SlideBase):
+    layout: Literal["quadrants"]
+    quadrants: list[Quadrant] = Field(min_length=4, max_length=4)
+
+
 Slide = Annotated[
     Union[
         TitleSlide,
@@ -146,6 +221,10 @@ Slide = Annotated[
         ChartSlide,
         QuoteSlide,
         ClosingSlide,
+        AskAllocationSlide,
+        MarketSnapshotSlide,
+        FlowStepsSlide,
+        QuadrantsSlide,
     ],
     Field(discriminator="layout"),
 ]
@@ -162,6 +241,10 @@ LAYOUTS = [
     "chart",
     "quote",
     "closing",
+    "ask_allocation",
+    "market_snapshot",
+    "flow_steps",
+    "quadrants",
 ]
 
 

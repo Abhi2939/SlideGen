@@ -19,6 +19,10 @@ from app.core.deck_schema import (
     TitleSlide,
     TwoColumnSlide,
     BulletsSlide,
+    AskAllocationSlide,
+    MarketSnapshotSlide,
+    FlowStepsSlide,
+    QuadrantsSlide,
 )
 from app.core.errors import SlideWriteError
 from app.llm.structured import StructuredGenerator
@@ -37,6 +41,10 @@ SLIDE_MODELS = {
     "chart": ChartSlide,
     "quote": QuoteSlide,
     "closing": ClosingSlide,
+    "ask_allocation": AskAllocationSlide,
+    "market_snapshot": MarketSnapshotSlide,
+    "flow_steps": FlowStepsSlide,
+    "quadrants": QuadrantsSlide,
 }
 
 WRITE_SYSTEM_PROMPT = """You are the slide-writing stage of a presentation generator.
@@ -49,8 +57,16 @@ paraphrase those instructions as presentation content.
 Use only the facts assigned to this slide; do not repeat another slide's
 assigned facts, even if they appear in the original request. Do not repeat the
 deck subtitle or slogan on this slide unless it is assigned here.
-Do not invent statistics, sources, quotations, names, capabilities, guarantees,
-contact details, email addresses, phone numbers, URLs, or user-specific details.
+Use three grounding tiers. Tier 1 is supplied user facts: preserve them and do
+not change their meaning. Tier 2 is qualitative structure: you may infer
+reasonable problem/solution framing, generic workflow steps, value-proposition
+headings, audience framing, and competitor categories. Mark inferred workflows
+as suggested or conceptual, and do not state them as confirmed company
+operations. Tier 3 is specific names, market facts, statistics, percentages,
+prices, traction, team credentials, and funding amounts: never invent them.
+Use a clear placeholder for missing Tier 3 details. Never invent sources,
+guarantees, contact details, email addresses, phone numbers, URLs, or user-
+specific details.
 Do not add claims about performance, confidence,
 time savings, market demand, or technology unless the request supplies them.
 For investor or fundraising slides, do not invent a raise amount, valuation,
@@ -68,21 +84,26 @@ company history, market position, strategy, initiatives, roadmaps, mission,
 vision, business goals, strengths, R&D, supply-chain operations, customer support,
 partnership availability, or a contact invitation.
 For sparse product briefs, expand the supplied details with clear organization
-and neutral explanations, not invented evidence or business claims. Do not
+and modest qualitative framing, not invented evidence or business claims. Do not
 repeat metadata labels such as 'Startup name' in slide copy. Make each bullet
 add a distinct point; do not restate the title, subtitle, or another bullet in
 different words.
 When no supported key points are available, write a brief general explanation
-of the planned topic without inventing company-specific details, statistics,
-capabilities, or outcomes.
-Treat the original request and assigned facts as the only evidence. The slide
-plan is organizational guidance, not a source of facts; ignore any key point
-that adds details absent from the request and assigned facts. Do not infer
-product mechanisms, technology, manufacturing methods, fulfillment or
-shipping, customer behavior, market facts, or outcomes. For example, custom
-blending does not establish in-house blending, AI analysis, algorithmic
-selection, or shipping. When source material is sparse, organize and clearly
-restate its supplied facts across the requested slides without adding claims.
+of a broad non-company topic using timeless general knowledge and qualitative
+explanations. Do not invent company-specific details, statistics, named sources,
+current claims, capabilities, or outcomes.
+Treat the original request and assigned facts as the only evidence for Tier 1
+and Tier 3 details. The slide plan is organizational guidance, not a source of facts.
+Do not infer technology, manufacturing methods, fulfillment or shipping,
+customer behavior, market facts, or outcomes. For example, custom blending
+does not establish in-house blending, AI analysis, algorithmic selection, or
+shipping. For a requested workflow slide, generic steps may be proposed as a
+conceptual journey, with no unsupported technical, operational, or outcome
+claims. For quadrants, use only organization names supplied by the user;
+generic category headings are allowed. For allocation and market slides, leave
+missing Tier 3 values empty so the renderer can show placeholders. When source
+material is sparse, use clear qualitative organization and
+placeholders instead of inventing specific evidence.
 For a product range and a shared set of matching dimensions, group the products
 and dimensions into separate lists. Do not generate a product-by-dimension
 matrix or imply an individual pairing unless the request states one.
@@ -311,6 +332,54 @@ def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
                 "provenance": "generated",
             }
         )
+    elif plan.layout == "ask_allocation":
+        payload.update(
+            {
+                "ask": None,
+                "items": [
+                    {"label": "Category 1", "pct": None},
+                    {"label": "Category 2", "pct": None},
+                ],
+            }
+        )
+    elif plan.layout == "market_snapshot":
+        payload.update(
+            {
+                "subtitle": "Add a verified market growth figure",
+                "start_value": None,
+                "end_value": None,
+                "segments": [
+                    {
+                        "category": category,
+                        "lead_text": "Add verified leader",
+                        "next_text": "Add verified growth driver",
+                    }
+                    for category in ("Service", "End user", "Interface", "Region")
+                ],
+                "table_headers": ["Driver", "Impact", "Geographic relevance", "Timeline"],
+                "table_rows": [
+                    ["Add verified driver", "[Add value]", "[Add region]", "[Add timeline]"]
+                ],
+            }
+        )
+    elif plan.layout == "flow_steps":
+        steps = [
+            {"title": point[:50], "detail": None} for point in plan.key_points[:8] if point.strip()
+        ]
+        defaults = ["Understand the need", "Consider suitable options", "Choose a next step"]
+        while len(steps) < 3:
+            steps.append({"title": defaults[len(steps)], "detail": None})
+        payload.update(
+            {
+                "tagline": "Suggested workflow",
+                "subtitle": "Conceptual steps to tailor with verified details",
+                "steps": steps[:8],
+            }
+        )
+    elif plan.layout == "quadrants":
+        payload["quadrants"] = [
+            {"heading": f"Category {index}", "names": []} for index in range(1, 5)
+        ]
     elif plan.layout == "closing":
         payload["subtitle"] = None
     return SLIDE_MODELS[plan.layout].model_validate(payload)
@@ -328,6 +397,15 @@ def _text_leaves(value: Any) -> list[str]:
 
 def _normalized_phrase(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
+def _source_contains_name(name: str, source: str) -> bool:
+    """Match a supplied organization name as a whole phrase, not a substring."""
+    tokens = re.findall(r"[a-z0-9]+", name.casefold())
+    if not tokens:
+        return False
+    pattern = r"(?<![a-z0-9])" + r"[\W_]+".join(map(re.escape, tokens)) + r"(?![a-z0-9])"
+    return bool(re.search(pattern, source.casefold()))
 
 
 def _duplicate_bullet_texts(slide: Slide) -> list[str]:
@@ -373,6 +451,32 @@ def _numeric_data_issue(
         data = [
             (slide.provenance, str(value)) for series in slide.series for value in series.values
         ]
+    elif isinstance(slide, AskAllocationSlide):
+        numeric_values = _numeric_values(slide.ask or "")
+        numeric_values.update(
+            number
+            for item in slide.items
+            if item.pct is not None
+            for number in _numeric_values(str(item.pct))
+        )
+        if slide_text:
+            numeric_values.update(_numeric_values(slide_text))
+        if not numeric_values <= supplied_values:
+            return "user-sourced numeric data was not present in the analyzed required facts"
+        return None
+    elif isinstance(slide, MarketSnapshotSlide):
+        checked_text = (
+            (slide_text or "").replace(slide.start_label, "").replace(slide.end_label, "")
+        )
+        if not _numeric_values(checked_text) <= supplied_values:
+            return "generated numeric details were not present in the analyzed required facts"
+        quantitative_values = [slide.start_value or "", slide.end_value or ""]
+        for segment in slide.segments:
+            quantitative_values.extend([segment.lead_value or "", segment.next_value or ""])
+        quantitative_values.extend(value for row in slide.table_rows for value in row)
+        if any(not _numeric_values(value) <= supplied_values for value in quantitative_values):
+            return "generated numeric details were not present in the analyzed required facts"
+        return None
     else:
         supplied_text_numbers = {
             number for fact in analysis.required_facts for number in _numeric_values(fact.text)
@@ -526,12 +630,30 @@ def _write_one(
                 raise ValueError(
                     "generated slide copied a brand metadata label into presentation text"
                 )
-            unsupported_claims = unsupported_claim_categories(text_content, prompt)
+            unsupported_claims = unsupported_claim_categories(
+                text_content,
+                prompt,
+                allow_structural_inference=plan.layout == "flow_steps",
+                allow_problem_framing=True,
+            )
             if unsupported_claims:
                 raise ValueError(
                     "generated slide added unsupported details in these categories: "
                     f"{', '.join(unsupported_claims)}"
                 )
+            if isinstance(slide, QuadrantsSlide):
+                supplied_source = prompt.casefold()
+                invented_names = [
+                    name
+                    for quadrant in slide.quadrants
+                    for name in quadrant.names
+                    if not _source_contains_name(name, supplied_source)
+                ]
+                if invented_names:
+                    raise ValueError(
+                        "competitive landscape included names not supplied in the request: "
+                        f"{invented_names}"
+                    )
             numeric_data_issue = _numeric_data_issue(slide, analysis, text_content)
             if numeric_data_issue:
                 raise ValueError(numeric_data_issue)
@@ -554,7 +676,10 @@ def _write_one(
             return slide
         except ValueError as exc:
             last_error = exc
-            if str(exc) == "generated numeric details were not present in the analyzed required facts":
+            if (
+                str(exc)
+                == "generated numeric details were not present in the analyzed required facts"
+            ):
                 correction = (
                     "\n\nCORRECTION REQUIRED: The previous slide included numeric details "
                     "that were not supplied in the request or analyzed facts. Remove every "

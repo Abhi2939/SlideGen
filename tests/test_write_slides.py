@@ -3,13 +3,24 @@ from time import sleep
 
 import pytest
 
-from app.core.deck_schema import BulletsSlide, ChartSlide, ClosingSlide, StatSlide, TitleSlide
+from app.core.deck_schema import (
+    AskAllocationSlide,
+    BulletsSlide,
+    ChartSlide,
+    ClosingSlide,
+    FlowStepsSlide,
+    MarketSnapshotSlide,
+    QuadrantsSlide,
+    StatSlide,
+    TitleSlide,
+)
 from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact
 from app.pipeline.write_slides import (
     rewrite_slides,
     _numeric_data_issue,
     _placeholder_slide,
+    _source_contains_name,
     write_slides,
 )
 
@@ -301,6 +312,96 @@ def test_chart_placeholder_has_unique_title_and_positive_illustrative_values():
     assert result.provenance == "illustrative"
     assert result.caption and "replace with supplied company data" in result.caption
     assert all(value > 0 for series in result.series for value in series.values)
+
+
+@pytest.mark.parametrize(
+    "layout,expected_type",
+    [
+        ("ask_allocation", AskAllocationSlide),
+        ("market_snapshot", MarketSnapshotSlide),
+        ("flow_steps", FlowStepsSlide),
+        ("quadrants", QuadrantsSlide),
+    ],
+)
+def test_reference_layout_placeholders_validate(layout, expected_type):
+    _, outline = _inputs()
+    plan = outline.slides[1].model_copy(update={"layout": layout})
+
+    result = _placeholder_slide(plan)
+
+    assert isinstance(result, expected_type)
+    if isinstance(result, AskAllocationSlide):
+        assert result.ask is None
+        assert all(item.pct is None for item in result.items)
+    if isinstance(result, FlowStepsSlide):
+        assert result.tagline == "Suggested workflow"
+        assert len(result.steps) >= 3
+    if isinstance(result, QuadrantsSlide):
+        assert len(result.quadrants) == 4
+
+
+def test_reference_numeric_layouts_reject_unprovided_values():
+    analysis = AnalysisOutput(
+        deck_title="Fundraising",
+        deck_type="fundraising",
+        slide_count=3,
+        required_facts=[
+            {"id": 0, "text": "Raising $14M; allocation is 60% product and 40% operations."}
+        ],
+    )
+    valid = AskAllocationSlide(
+        layout="ask_allocation",
+        title="The Ask",
+        ask="$14M",
+        items=[{"label": "Product", "pct": 60}, {"label": "Operations", "pct": 40}],
+    )
+    invalid = AskAllocationSlide(
+        layout="ask_allocation",
+        title="The Ask",
+        ask="$14M",
+        items=[{"label": "Product", "pct": 61}, {"label": "Operations", "pct": 39}],
+    )
+
+    assert _numeric_data_issue(valid, analysis) is None
+    assert "not present" in _numeric_data_issue(invalid, analysis)
+
+
+def test_market_snapshot_rejects_unprovided_cagr_or_table_metrics():
+    analysis = AnalysisOutput(
+        deck_title="FinTech",
+        deck_type="market analysis",
+        slide_count=3,
+        required_facts=[
+            {"id": 0, "text": "Market size is USD 10 Bn in 2025 and USD 20 Bn in 2030."}
+        ],
+    )
+    slide = MarketSnapshotSlide(
+        layout="market_snapshot",
+        title="FinTech Market",
+        subtitle="CAGR: 18%",
+        start_value="USD 10 Bn",
+        end_value="USD 20 Bn",
+    )
+
+    assert "not present" in _numeric_data_issue(
+        slide, analysis, "FinTech Market\nCAGR: 18%\n2025 USD 10 Bn\n2030 USD 20 Bn"
+    )
+
+
+def test_conceptual_flow_can_use_inferred_qualitative_steps():
+    assert (
+        unsupported_claim_categories(
+            "We assess needs and select shade options.",
+            "A product introduction",
+            allow_structural_inference=True,
+        )
+        == []
+    )
+
+
+def test_competitor_name_source_check_uses_word_boundaries():
+    assert _source_contains_name("Acme Pay", "Acme Pay raised a round.")
+    assert not _source_contains_name("Visa", "supervision tools for payments")
 
 
 def test_user_provenance_stat_must_match_a_supplied_numeric_fact():
