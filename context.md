@@ -57,7 +57,7 @@ Install development dependencies with `python -m pip install -r requirements-dev
 
 ## Git and client handling
 
-- The user asked to commit everything at each checkpoint. Include project Markdown notes when they are part of a checkpoint; keep `.env`, generated artifacts, `expected pics/`, and `golden/` out of Git.
+- Commit completed checkpoints, but keep `follow.md`, `idea.md`, `instructions.md`, and `test.md` local and ignored. Never force-add these four files. Keep `.env`, generated artifacts, `expected pics/`, and `golden/` out of Git.
 - Commit completed, reviewed checkpoints. Do not push unless asked.
 - Do not contact the client without explicit authorization.
 - Do not commit `.env`, credentials, generated presentations, `venv/`, `data/`, `outputs/`, screenshots, or raster QA artifacts.

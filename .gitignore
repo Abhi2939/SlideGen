@@ -23,9 +23,15 @@ evals/outputs/
 .DS_Store
 Thumbs.db
 
-# Keep only the repository README; ignore other Markdown files.
+# Ignore Markdown files by default; existing tracked documentation stays tracked.
 *.md
 !README.md
+
+# Local project notes; never force-add these files.
+/follow.md
+/idea.md
+/instructions.md
+/test.md
 
 # Reference images
 /expected pics/
