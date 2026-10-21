@@ -391,6 +391,16 @@ def test_title_does_not_repeat_a_funding_amount():
     assert result.subtitle == "fintech growth"
 
 
+def test_speaker_notes_do_not_count_as_visible_slide_text():
+    slide = TitleSlide(
+        layout="title",
+        title="Acme Pay",
+        speaker_notes="Rs. 14 Cr",
+    )
+
+    assert "Rs. 14 Cr" not in _slide_text_content(slide)
+
+
 def test_market_without_sourced_data_uses_placeholders():
     class UnsupportedMarketWriter:
         def __init__(self):

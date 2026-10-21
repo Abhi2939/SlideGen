@@ -121,6 +121,38 @@ def test_review_adds_missing_repair_target_from_issue_references():
     assert result.regenerate_slide_indices == [1]
 
 
+def test_review_ignores_missing_fact_already_visible_on_another_slide():
+    analysis, outline, slides = _inputs()
+    slides[1] = BulletsSlide(
+        layout="bullets",
+        title="Launch date",
+        bullets=[{"text": "Launch is June 1"}, {"text": "Prepare the team"}],
+    )
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "missing_fact",
+                        "severity": "medium",
+                        "detail": "Missing required fact 'Launch is June 1' on slide 0.",
+                        "slide_indices": [0],
+                    }
+                ],
+                missing_fact_ids=[0],
+                regenerate_slide_indices=[0],
+            )
+        ]
+    )
+
+    result = review_deck("Make a launch deck", analysis, outline, slides, generator, "review-model")
+
+    assert result.passed
+    assert result.issues == []
+    assert result.missing_fact_ids == []
+
+
 def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():
     analysis, outline, slides = _inputs()
     issue = {

@@ -408,7 +408,9 @@ def _text_leaves(value: Any) -> list[str]:
 
 def _slide_text_content(slide: Slide) -> str:
     """Return visible text, including numeric fields rendered by specialized layouts."""
-    leaves = _text_leaves(slide.model_dump(mode="json"))
+    slide_data = slide.model_dump(mode="json")
+    slide_data.pop("speaker_notes", None)
+    leaves = _text_leaves(slide_data)
     if isinstance(slide, AskAllocationSlide):
         leaves.extend(
             f"{item.label} {item.pct:.2f}%" for item in slide.items if item.pct is not None

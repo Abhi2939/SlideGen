@@ -19,6 +19,7 @@ from app.pipeline.write_slides import (
     _can_use_sparse_company_placeholder,
     _is_generic_business_fact,
     _placeholder_slide,
+    _slide_text_content,
     rewrite_slides,
 )
 
@@ -194,6 +195,48 @@ def _complete_regenerate_targets(
     return review.model_copy(update={"regenerate_slide_indices": targets})
 
 
+def _filter_missing_facts_present_in_deck(
+    review: ReviewOutput,
+    analysis: AnalysisOutput,
+    slides: list[Slide],
+) -> ReviewOutput:
+    """Ignore missing-fact reports for facts already visible elsewhere in the deck."""
+    if not review.missing_fact_ids:
+        return review
+    visible_text = _normalized_review_text(
+        "\n".join(_slide_text_content(slide) for slide in slides)
+    )
+    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+    present_ids = {
+        fact_id
+        for fact_id in review.missing_fact_ids
+        if fact_id in facts_by_id
+        if _normalized_review_text(facts_by_id[fact_id].text) in visible_text
+    }
+    remaining_ids = [fact_id for fact_id in review.missing_fact_ids if fact_id not in present_ids]
+    remaining_issues = []
+    for issue in review.issues:
+        if issue.category == "missing_fact":
+            issue_text = _normalized_review_text(issue.detail)
+            reported_present = [
+                fact_id
+                for fact_id in present_ids
+                if _normalized_review_text(facts_by_id[fact_id].text) in issue_text
+            ]
+            if reported_present:
+                continue
+        remaining_issues.append(issue)
+    if not remaining_ids and not remaining_issues:
+        return ReviewOutput(passed=True)
+    if remaining_ids == review.missing_fact_ids and remaining_issues == review.issues:
+        return review
+    return review.model_copy(update={"missing_fact_ids": remaining_ids, "issues": remaining_issues})
+
+
+def _normalized_review_text(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+
+
 def _repair_instructions(
     review: ReviewOutput,
     analysis: AnalysisOutput,
@@ -323,6 +366,7 @@ def review_deck(
         review = _filter_grounded_unsupported_claims(
             review, clean_prompt, slides, analysis, outline
         )
+        review = _filter_missing_facts_present_in_deck(review, analysis, slides)
         review = _complete_regenerate_targets(review, outline)
         try:
             _validate_review_references(review, analysis, outline)
