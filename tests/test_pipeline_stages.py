@@ -363,6 +363,9 @@ def test_grounding_allows_claim_categories_already_in_source(prompt, claim):
         "Significant time savings for every firm.",
         "Freemium pilot for accounting firms.",
         "Growing demand for automation.",
+        "Accounting firms of all sizes.",
+        "Hours required per invoice and minutes after automation.",
+        "Error reduction through automated processing.",
     ],
 )
 def test_investor_grounding_flags_unsupported_specifics(claim):

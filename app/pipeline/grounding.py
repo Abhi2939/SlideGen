@@ -80,6 +80,8 @@ _UNSUPPORTED_INVESTOR_PATTERNS = {
     "unsupported product outcomes or performance claims": re.compile(
         r"\b(?:time[- ]consuming|time savings?|cost savings?|error rates?|"
         r"accuracy|efficiency|scalability issues|significant improvements?|"
+        r"accurate|efficient|error risk|error reduction|"
+        r"(?:hours?|minutes?|days?)\s+(?:required|per|each|after|before|saved)\b|"
         r"reduce(?:s|d)?\s+(?:time|cost|errors?)|save(?:s|d)?\s+time)\b",
         re.IGNORECASE,
     ),
@@ -92,6 +94,7 @@ _UNSUPPORTED_INVESTOR_PATTERNS = {
     "unsupported market evidence or traction": re.compile(
         r"\b(?:growing demand|rising demand|large (?:accounting firm )?base|"
         r"large number of accounting firms|market opportunity|rapidly growing market|"
+        r"accounting firms of all sizes|firms of all sizes|all company sizes|"
         r"customer traction|strong adoption|high demand)\b",
         re.IGNORECASE,
     ),
