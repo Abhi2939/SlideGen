@@ -9,7 +9,7 @@ This file records implementation rules and the verified state of the project. Se
 - Checkpoint commits through `19b51ee` include the four reference layouts and follow-up routing, fact-validation, investor-grounding, and renderer fixes.
 - Latest local verification: 163 pytest tests passed; Ruff lint, Ruff format, and `git diff --check` passed.
 - A fresh Acme Pay generation completed and was inspected. It included all four requested layouts, retained allocation values, and left missing market data and competitor names as placeholders. The four reference screenshots have been compared; broad compositions match, but full visual fidelity remains incomplete.
-- A fresh investor run was blocked at outline generation because Groq daily token usage had reached 200,000/200,000. An earlier investor output exposed unsupported comparison claims, which prompted the latest guard; that fix still needs live verification. The public health endpoint and Render deployment remain unverified.
+- Repeated current-code investor runs were blocked at outline generation by Groq daily token quota. The latest report showed 199,976/200,000 tokens used, requested 1,609, with an 11m24s cooldown. The latest successful investor output predates the comparative-claim guard; live behavior remains unverified. The public health endpoint and Render deployment remain unverified.
 - Local Markdown handoff notes are included in the user's request to commit at each checkpoint. Keep generated artifacts, `.env`, `expected pics/`, and `golden/` out of commits.
 
 ## Start and verify locally
