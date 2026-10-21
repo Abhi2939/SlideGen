@@ -15,9 +15,9 @@ The reference screenshots are in the ignored local folder `expected pics/`. Four
 ## Honest project status
 
 - **Four reference layout types:** implemented in schema, planner/writer/review contracts, and deterministic renderers: `ask_allocation`, `market_snapshot`, `flow_steps`, and `quadrants`.
-- **Automated local checks:** latest checkpoint passes 162 pytest tests, Ruff lint/format, and `git diff --check`. Fixtures prove renderers can create editable PowerPoint, not complete visual similarity.
-- **Visual match:** incomplete/unverified. The current renderers capture the broad compositions but do not reproduce all reference detail, including photography, logos, and icons. No raster comparison has been completed.
-- **Prompt selection and content quality:** a fresh Acme Pay generation completed and was inspected. It used all four requested layouts, retained the supplied allocations, and used placeholders for absent market metrics and competitor names. Full image-by-image comparison remains incomplete. The corrected investor run is blocked by Groq daily token quota. An earlier investor output contained unsupported comparative claims; the latest guard has not yet been verified live. Other prompts and short-prompt completeness remain unverified.
+- **Automated local checks:** latest checkpoint passes 163 pytest tests, Ruff lint/format, and `git diff --check`. Fixtures prove renderers can create editable PowerPoint, not complete visual similarity.
+- **Visual match:** inspected the four reference screenshots against the generated Acme Pay slides and a PowerPoint render of the updated eight-stage workflow. The broad layouts are present; supplied data is represented correctly. Market values and competitor names are intentionally placeholders, five workflow stages are marked for completion, and reference photography/logos/icons are not reproduced. Detailed visual fidelity remains incomplete.
+- **Prompt selection and content quality:** a fresh Acme Pay generation completed and was inspected. It used all four requested layouts, retained the supplied allocations, and used placeholders for absent market metrics and competitor names. The workflow renderer now expands to eight numbered stages, clearly marking stages absent from the prompt. The corrected investor run is blocked by Groq daily token quota. An earlier investor output contained unsupported comparative claims; the latest guard has not yet been verified live. Other prompts and short-prompt completeness remain unverified.
 - **Live service:** unverified. The public `/healthz` endpoint was inaccessible from this workspace. Current Render revision, logs, API-key/quota errors, and live downloads have not been checked.
 - **Client contact:** none sent. The sample message below is only a draft.
 
@@ -57,7 +57,7 @@ The previous fixture file `outputs/reference-layouts-check.pptx` is a renderer p
 git diff --check
 ```
 
-Latest local verification: 162 tests passed; Ruff lint, format, and `git diff --check` passed. A fresh Acme Pay deck was generated and inspected, but complete screenshot comparison remains open. Fixtures use no live API calls.
+Latest local verification: 163 tests passed; Ruff lint, format, and `git diff --check` passed. A fresh Acme Pay deck was generated and inspected, but complete screenshot comparison remains open. Fixtures use no live API calls.
 
 ## Suggested client-style prompt
 

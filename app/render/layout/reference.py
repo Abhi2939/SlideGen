@@ -396,7 +396,7 @@ def render_market_snapshot(prs, data, theme: Theme):
 def render_flow_steps(prs, data, theme: Theme):
     slide = new_slide(prs, theme)
     _title(slide, data.title, tagline=data.tagline, subtitle=data.subtitle, bg=PALE)
-    steps = data.steps
+    steps = [*data.steps, *([None] * (8 - len(data.steps)))]
     card_w = min(3.0, max(1.52, (11.63 / (len(steps) - 1)) * 0.72))
     left = max(0.85, card_w / 2 + 0.12)
     right = 13.33 - left
@@ -443,12 +443,12 @@ def render_flow_steps(prs, data, theme: Theme):
         title_p = tf.paragraphs[0]
         title_p.alignment = PP_ALIGN.CENTER
         title_run = title_p.add_run()
-        title_run.text = step.title
+        title_run.text = step.title if step else "[Add verified step]"
         title_run.font.name = "Calibri"
         title_run.font.size = Pt(10)
         title_run.font.bold = True
         title_run.font.color.rgb = TEXT
-        if step.detail:
+        if step and step.detail:
             detail_p = tf.add_paragraph()
             detail_p.alignment = PP_ALIGN.CENTER
             detail_run = detail_p.add_run()

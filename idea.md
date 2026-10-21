@@ -18,9 +18,9 @@ The client requirement documented in `follow.md` is that generated decks follow 
 
 ## Verification state
 
-The current checkpoint includes the four reference-specific layouts and follow-up grounding/routing fixes. The latest local run passed **162 tests**, Ruff lint, Ruff format, and `git diff --check`. This confirms contracts and fixture behavior, not all live LLM behavior.
+The current checkpoint includes the four reference-specific layouts and follow-up grounding/routing fixes. The latest local run passed **163 tests**, Ruff lint, Ruff format, and `git diff --check`. This confirms contracts and fixture behavior, not all live LLM behavior.
 
-A fresh Acme Pay deck was generated and inspected; it included the four layouts and preserved the supplied allocations while leaving unsupported market metrics and competitor names as placeholders. Full screenshot comparison remains open, and the renderer omits some reference photography, logos, and icons. A fresh investor run is blocked by the Groq daily token cap; an earlier output exposed comparative claims that the latest code now guards against. The fixed output still needs live verification. The public health check and Render deployment remain unverified. See `test.md` and `follow.md` for evidence still needed.
+A fresh Acme Pay deck was generated and inspected; it included the four layouts and preserved the supplied allocations while leaving unsupported market metrics and competitor names as placeholders. The four reference screenshots have now been compared with the generated slides. The broad compositions match, but the renderer omits reference photography, logos, and icons; unsupported market data and competitor names remain placeholders. A fresh investor run is blocked by the Groq daily token cap; an earlier output exposed comparative claims that the latest code now guards against. The fixed output still needs live verification. The public health check and Render deployment remain unverified. See `test.md` and `follow.md` for evidence still needed.
 
 ## Product limits and operating assumptions
 

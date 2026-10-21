@@ -180,3 +180,30 @@ def test_empty_quadrants_show_explicit_name_placeholders(tmp_path):
     ]
 
     assert len(placeholders) == 4
+
+
+def test_flow_reference_renders_eight_stages_and_labels_missing_steps(tmp_path):
+    deck = Deck.model_validate(
+        {
+            "title": "Workflow",
+            "slides": [
+                {"layout": "title", "title": "Workflow"},
+                {
+                    "layout": "flow_steps",
+                    "title": "Customer Journey",
+                    "steps": [
+                        {"title": "Sign up"},
+                        {"title": "Verify KYC"},
+                        {"title": "Get funded"},
+                    ],
+                },
+                {"layout": "closing", "title": "Next"},
+            ],
+        }
+    )
+    out = build_deck(deck, tmp_path / "workflow.pptx", strict=True)
+    slide = Presentation(str(out)).slides[1]
+    texts = [shape.text for shape in slide.shapes if shape.has_text_frame]
+
+    assert sum(text.isdigit() for text in texts) == 8
+    assert texts.count("[Add verified step]") == 5

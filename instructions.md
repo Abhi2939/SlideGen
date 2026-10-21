@@ -7,10 +7,10 @@ This file records implementation rules and the verified state of the project. Se
 - The project includes a CLI, FastAPI web app, browser UI, SQLite job queue, Groq generation pipeline, review/repair stages, and a deterministic PowerPoint renderer.
 - Fourteen layouts are registered: the original ten plus `ask_allocation`, `market_snapshot`, `flow_steps`, and `quadrants`.
 - Checkpoint commits through `19b51ee` include the four reference layouts and follow-up routing, fact-validation, investor-grounding, and renderer fixes.
-- Latest local verification: 162 pytest tests passed; Ruff lint, Ruff format, and `git diff --check` passed.
-- A fresh Acme Pay generation completed and was inspected. It included all four requested layouts, retained allocation values, and left missing market data and competitor names as placeholders. Full visual comparison with the reference screenshots remains open.
+- Latest local verification: 163 pytest tests passed; Ruff lint, Ruff format, and `git diff --check` passed.
+- A fresh Acme Pay generation completed and was inspected. It included all four requested layouts, retained allocation values, and left missing market data and competitor names as placeholders. The four reference screenshots have been compared; broad compositions match, but full visual fidelity remains incomplete.
 - A fresh investor run was blocked at outline generation because Groq daily token usage had reached 200,000/200,000. An earlier investor output exposed unsupported comparison claims, which prompted the latest guard; that fix still needs live verification. The public health endpoint and Render deployment remain unverified.
-- Local Markdown handoff notes are included in the user?s request to commit at each checkpoint. Keep generated artifacts, `.env`, `expected pics/`, and `golden/` out of commits.
+- Local Markdown handoff notes are included in the user's request to commit at each checkpoint. Keep generated artifacts, `.env`, `expected pics/`, and `golden/` out of commits.
 
 ## Start and verify locally
 

@@ -8,8 +8,8 @@ Use this as the implementation handoff when resuming work. Never put API keys or
 - The project has a CLI, FastAPI web app, browser UI, SQLite-backed asynchronous jobs, Groq-powered generation pipeline, review/repair, and deterministic PowerPoint rendering.
 - Fourteen layouts are registered: title, section, bullets, two-column, stat, process, comparison, chart, quote, closing, `ask_allocation`, `market_snapshot`, `flow_steps`, and `quadrants`.
 - The four newer reference layouts are integrated into schema validation, planner routing, typed slide writing, review guidance, and renderer dispatch.
-- Latest local verification passed 162 pytest tests, Ruff lint, Ruff format, and `git diff --check`.
-- A fresh Acme Pay generation completed and was inspected. It included all four reference layouts and preserved supplied allocations; missing market metrics and competitor names remained placeholders. Full screenshot comparison remains open.
+- Latest local verification passed 163 pytest tests, Ruff lint, Ruff format, and `git diff --check`.
+- A fresh Acme Pay generation completed and was inspected against all four reference screenshots. It included all four reference layouts and preserved supplied allocations; missing market metrics and competitor names remained placeholders. The workflow renderer now expands shorter source workflows to an eight-stage arc with explicit `[Add verified step]` labels.
 - A current-code investor run was blocked at outline generation by Groq daily token usage (200,000/200,000). The latest successful investor output predates the comparative-claim guard, so investor behavior remains unverified. The public `/healthz` endpoint and Render deployment revision/logs also remain unverified.
 - Current generated output quality has not been accepted by the client. Broad layout composition exists, but some reference styling/assets (photos, logos, icons) are not implemented and visual fidelity remains open.
 
