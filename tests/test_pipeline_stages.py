@@ -243,7 +243,13 @@ def test_explicit_funding_layout_is_restored_without_replacing_other_reference_s
     outline = OutlineOutput(
         deck_title="Acme Pay",
         slides=[
-            {"index": 0, "title": "Acme Pay", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 0,
+                "title": "Acme Pay",
+                "purpose": "Introduce",
+                "layout": "title",
+                "required_fact_ids": [0],
+            },
             {
                 "index": 1,
                 "title": "Funding",
@@ -253,7 +259,13 @@ def test_explicit_funding_layout_is_restored_without_replacing_other_reference_s
             {"index": 2, "title": "Market", "purpose": "Market facts", "layout": "market_snapshot"},
             {"index": 3, "title": "Journey", "purpose": "Workflow", "layout": "flow_steps"},
             {"index": 4, "title": "Landscape", "purpose": "Competitors", "layout": "quadrants"},
-            {"index": 5, "title": "Close", "purpose": "Close", "layout": "closing"},
+            {
+                "index": 5,
+                "title": "Close",
+                "purpose": "Close",
+                "layout": "closing",
+                "required_fact_ids": [1],
+            },
         ],
     )
 
@@ -261,6 +273,7 @@ def test_explicit_funding_layout_is_restored_without_replacing_other_reference_s
 
     assert result.slides[1].layout == "ask_allocation"
     assert result.slides[1].required_fact_ids == [0, 1]
+    assert not any(result.slides[index].required_fact_ids for index in (0, 5))
     assert {slide.layout for slide in result.slides} >= {
         "ask_allocation",
         "market_snapshot",

@@ -21,6 +21,7 @@ from app.pipeline.write_slides import (
     _numeric_data_issue,
     _placeholder_slide,
     _remove_funding_amount_from_title,
+    _remove_deck_brand_from_quadrants,
     _restore_verbatim_facts,
     _slide_text_content,
     _source_contains_name,
@@ -390,9 +391,13 @@ def test_title_does_not_repeat_a_funding_amount():
     assert result.subtitle == "fintech growth"
 
 
-def test_unsupported_market_copy_falls_back_to_market_placeholders():
+def test_market_without_sourced_data_uses_placeholders():
     class UnsupportedMarketWriter:
+        def __init__(self):
+            self.models = []
+
         def generate(self, output_model, **kwargs):
+            self.models.append(output_model)
             if output_model is TitleSlide:
                 return TitleSlide(layout="title", title="Acme Pay")
             if output_model is MarketSnapshotSlide:
@@ -430,17 +435,36 @@ def test_unsupported_market_copy_falls_back_to_market_placeholders():
         ],
     )
 
+    writer = UnsupportedMarketWriter()
     result = write_slides(
         "Acme Pay is a fintech for SMEs. Include a market snapshot.",
         analysis,
         outline,
-        UnsupportedMarketWriter(),
+        writer,
         "test-model",
     )
 
     assert isinstance(result[1], MarketSnapshotSlide)
     assert result[1].subtitle == "Add a verified market growth figure"
     assert all(segment.lead_text == "Add verified leader" for segment in result[1].segments)
+    assert MarketSnapshotSlide not in writer.models
+
+
+def test_quadrants_remove_the_presenting_company_from_competitors():
+    slide = QuadrantsSlide(
+        layout="quadrants",
+        title="Competitive Landscape",
+        quadrants=[
+            {"heading": "Fintech", "names": ["Acme Pay", "Visa"]},
+            {"heading": "Banks", "names": ["ADCB"]},
+            {"heading": "Platforms", "names": []},
+            {"heading": "Other", "names": []},
+        ],
+    )
+
+    result = _remove_deck_brand_from_quadrants(slide, "Acme Pay Investor Deck")
+
+    assert result.quadrants[0].names == ["Visa"]
 
 
 def test_reference_numeric_layouts_reject_unprovided_values():

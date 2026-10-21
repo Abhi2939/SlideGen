@@ -99,8 +99,9 @@ customer behavior, market facts, or outcomes. For example, custom blending
 does not establish in-house blending, AI analysis, algorithmic selection, or
 shipping. For a requested workflow slide, generic steps may be proposed as a
 conceptual journey, with no unsupported technical, operational, or outcome
-claims. For quadrants, use only organization names supplied by the user;
-generic category headings are allowed. For allocation and market slides, leave
+claims. For quadrants, use only organization names supplied by the user and
+do not list the presenting company as its own competitor. Generic category
+headings are allowed. For allocation and market slides, leave
 missing Tier 3 values empty so the renderer can show placeholders. When source
 material is sparse, use clear qualitative organization and
 placeholders instead of inventing specific evidence.
@@ -130,8 +131,8 @@ _CURRENCY_AMOUNT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _MARKET_SOURCE_PATTERN = re.compile(
-    r"\b(?:market|CAGR|market share|market size|segment share|industry growth|"
-    r"regional share|fintech sector)\b",
+    r"\b(?:market|CAGR|industry|sector|segment|growth|share|regional|end[- ]user|"
+    r"service category|interface)\b",
     re.IGNORECASE,
 )
 _METADATA_LABEL_PATTERN = re.compile(
@@ -428,6 +429,33 @@ def _source_contains_name(name: str, source: str) -> bool:
     return bool(re.search(pattern, source.casefold()))
 
 
+def _remove_deck_brand_from_quadrants(slide: QuadrantsSlide, deck_title: str) -> QuadrantsSlide:
+    """Remove the presenting brand if the writer lists it as a competitor."""
+    brand = re.sub(
+        r"\b(?:investor\s+pitch|investor\s+deck|fundraising\s+deck|pitch\s+deck|deck|presentation)\b",
+        "",
+        deck_title,
+        flags=re.IGNORECASE,
+    )
+    normalized_brand = _normalized_phrase(brand)
+    return slide.model_copy(
+        update={
+            "quadrants": [
+                quadrant.model_copy(
+                    update={
+                        "names": [
+                            name
+                            for name in quadrant.names
+                            if _normalized_phrase(name) != normalized_brand
+                        ]
+                    }
+                )
+                for quadrant in slide.quadrants
+            ]
+        }
+    )
+
+
 def _duplicate_bullet_texts(slide: Slide) -> list[str]:
     if not isinstance(slide, BulletsSlide):
         return []
@@ -585,6 +613,10 @@ def _write_one(
     assigned_facts: list[RequiredFact] = [
         facts_by_id[fact_id] for fact_id in plan.required_fact_ids
     ]
+    if plan.layout == "market_snapshot" and not any(
+        _MARKET_SOURCE_PATTERN.search(fact.text) for fact in assigned_facts
+    ):
+        return _placeholder_slide(plan, assigned_facts)
     if _can_use_sparse_company_placeholder(prompt, analysis) and all(
         _is_generic_business_fact(fact) for fact in assigned_facts
     ):
@@ -700,6 +732,7 @@ def _write_one(
                 )
             if isinstance(slide, QuadrantsSlide):
                 supplied_source = prompt.casefold()
+                slide = _remove_deck_brand_from_quadrants(slide, analysis.deck_title)
                 invented_names = [
                     name
                     for quadrant in slide.quadrants
@@ -749,14 +782,6 @@ def _write_one(
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
             )
-
-    if (
-        last_error is not None
-        and plan.layout == "market_snapshot"
-        and not any(_MARKET_SOURCE_PATTERN.search(fact.text) for fact in assigned_facts)
-        and "unsupported details" in str(last_error)
-    ):
-        return _placeholder_slide(plan, assigned_facts)
 
     if (
         last_error is not None

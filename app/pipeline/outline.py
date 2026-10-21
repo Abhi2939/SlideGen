@@ -235,6 +235,14 @@ def _ensure_explicit_funding_layout(
     funding_fact_ids = [
         fact.id for fact in analysis.required_facts if funding_fact_pattern.search(fact.text)
     ]
+    for index, plan in enumerate(plans):
+        if index == target_index:
+            continue
+        remaining_ids = [
+            fact_id for fact_id in plan.required_fact_ids if fact_id not in funding_fact_ids
+        ]
+        if remaining_ids != plan.required_fact_ids:
+            plans[index] = plan.model_copy(update={"required_fact_ids": remaining_ids})
     target = plans[target_index]
     plans[target_index] = target.model_copy(
         update={
