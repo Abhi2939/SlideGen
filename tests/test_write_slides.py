@@ -20,6 +20,8 @@ from app.pipeline.write_slides import (
     rewrite_slides,
     _numeric_data_issue,
     _placeholder_slide,
+    _remove_funding_amount_from_title,
+    _restore_verbatim_facts,
     _slide_text_content,
     _source_contains_name,
     write_slides,
@@ -357,6 +359,88 @@ def test_allocation_percentage_fact_is_in_visible_slide_text():
     )
 
     assert "Team 3.02%" in _slide_text_content(slide)
+
+
+def test_missing_allocation_ask_is_restored_from_assigned_fact():
+    slide = AskAllocationSlide(
+        layout="ask_allocation",
+        title="Funding Ask & Use of Funds",
+        ask=None,
+        items=[{"label": "Team", "pct": 50}, {"label": "Operations", "pct": 50}],
+    )
+
+    result = _restore_verbatim_facts(
+        slide,
+        [RequiredFact(id=0, text="Rs. 14 Cr", verbatim=True)],
+    )
+
+    assert isinstance(result, AskAllocationSlide)
+    assert result.ask == "Rs. 14 Cr"
+
+
+def test_title_does_not_repeat_a_funding_amount():
+    slide = TitleSlide(
+        layout="title",
+        title="Acme Pay",
+        subtitle="Raising Rs. 14 Cr for fintech growth",
+    )
+
+    result = _remove_funding_amount_from_title(slide)
+
+    assert result.subtitle == "fintech growth"
+
+
+def test_unsupported_market_copy_falls_back_to_market_placeholders():
+    class UnsupportedMarketWriter:
+        def generate(self, output_model, **kwargs):
+            if output_model is TitleSlide:
+                return TitleSlide(layout="title", title="Acme Pay")
+            if output_model is MarketSnapshotSlide:
+                return MarketSnapshotSlide(
+                    layout="market_snapshot",
+                    title="Market Snapshot",
+                    segments=[
+                        {
+                            "category": "SME fintech",
+                            "lead_text": "Market growth is accelerating",
+                            "next_text": "Market demand is rising",
+                        }
+                    ],
+                )
+            if output_model is ClosingSlide:
+                return ClosingSlide(layout="closing", title="Close")
+            raise AssertionError(f"unexpected output model: {output_model}")
+
+    analysis = AnalysisOutput(
+        deck_title="Acme Pay",
+        deck_type="company introduction",
+        slide_count=3,
+    )
+    outline = OutlineOutput(
+        deck_title="Acme Pay",
+        slides=[
+            {"index": 0, "title": "Acme Pay", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "Market Snapshot",
+                "purpose": "Show market context",
+                "layout": "market_snapshot",
+            },
+            {"index": 2, "title": "Close", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    result = write_slides(
+        "Acme Pay is a fintech for SMEs. Include a market snapshot.",
+        analysis,
+        outline,
+        UnsupportedMarketWriter(),
+        "test-model",
+    )
+
+    assert isinstance(result[1], MarketSnapshotSlide)
+    assert result[1].subtitle == "Add a verified market growth figure"
+    assert all(segment.lead_text == "Add verified leader" for segment in result[1].segments)
 
 
 def test_reference_numeric_layouts_reject_unprovided_values():

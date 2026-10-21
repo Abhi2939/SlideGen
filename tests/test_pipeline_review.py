@@ -83,7 +83,7 @@ def test_review_retries_invalid_slide_references():
     assert "out-of-range slide indices" in generator.calls[1][1]["user_prompt"]
 
 
-def test_review_rejects_missing_repair_target_and_retries():
+def test_review_adds_missing_repair_target_from_issue_references():
     analysis, outline, slides = _inputs()
     generator = FakeReviewGenerator(
         [
@@ -117,10 +117,8 @@ def test_review_rejects_missing_repair_target_and_retries():
     result = review_deck("Make a launch deck", analysis, outline, slides, generator, "review-model")
 
     assert not result.passed
-    assert len(generator.calls) == 2
-    assert (
-        "regenerate_slide_indices must include every slide" in generator.calls[1][1]["user_prompt"]
-    )
+    assert len(generator.calls) == 1
+    assert result.regenerate_slide_indices == [1]
 
 
 def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():

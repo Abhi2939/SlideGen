@@ -1,11 +1,28 @@
 """Turn the user's prompt into a validated deck brief."""
 
+import re
+
 from app.pipeline.briefs import short_beauty_brief
 from app.pipeline.models import AnalysisOutput, RequiredFact
 from app.llm.structured import StructuredGenerator
 
 
 MAX_PROMPT_CHARS = 12_000
+_FUNDING_AMOUNT_PATTERN = re.compile(
+    r"(?<![\w])(?:Rs\.?|INR|₹|USD|US\$|\$|EUR|€|GBP|£)\s*"
+    r"\d[\d,]*(?:\.\d+)?(?:\s*(?:crores?|cr|lakhs?|lakh|million|billion|[kmb]))?",
+    re.IGNORECASE,
+)
+_FUNDING_CONTEXT_PATTERN = re.compile(
+    r"\b(?:rais(?:e|es|ed|ing)|fundrais(?:e|es|ed|ing)|funding|investment|capital)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_SLIDE_COUNT_PATTERN = re.compile(
+    r"\b(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|"
+    r"nineteen|twenty|twenty[- ]five|thirty)[-\s]+slides?\b",
+    re.IGNORECASE,
+)
 ANALYSIS_SYSTEM_PROMPT = """You are the analysis stage of a presentation generator.
 Extract a concise presentation brief. Separate factual source material from
 presentation instructions. Put requested slide count, layouts, audience,
@@ -52,6 +69,25 @@ def analyze_prompt(
         temperature=0.1,
         max_tokens=max_tokens,
     )
+    minimum_count = _minimum_reference_slide_count(clean_prompt)
+    if minimum_count > analysis.slide_count and not _EXPLICIT_SLIDE_COUNT_PATTERN.search(
+        clean_prompt
+    ):
+        analysis = analysis.model_copy(update={"slide_count": minimum_count})
+    funding_amount = _extract_funding_amount(clean_prompt)
+    if funding_amount and not any(
+        fact.verbatim and fact.text.casefold() == funding_amount.casefold()
+        for fact in analysis.required_facts
+    ):
+        next_id = max((fact.id for fact in analysis.required_facts), default=-1) + 1
+        analysis = analysis.model_copy(
+            update={
+                "required_facts": [
+                    *analysis.required_facts,
+                    RequiredFact(id=next_id, text=funding_amount, verbatim=True),
+                ]
+            }
+        )
     brief = short_beauty_brief(clean_prompt)
     if brief is None:
         return analysis
@@ -69,3 +105,35 @@ def analyze_prompt(
             "deck_type": "branded beauty product introduction",
         }
     )
+
+
+def _extract_funding_amount(prompt: str) -> str | None:
+    """Keep an explicitly stated raise amount in the fact inventory verbatim."""
+    for match in _FUNDING_AMOUNT_PATTERN.finditer(prompt):
+        context = prompt[max(0, match.start() - 48) : min(len(prompt), match.end() + 32)]
+        if _FUNDING_CONTEXT_PATTERN.search(context):
+            return " ".join(match.group(0).split()).rstrip(".,;:")
+    return None
+
+
+def _minimum_reference_slide_count(prompt: str) -> int:
+    """Reserve one slide for each explicitly requested reference layout plus a title."""
+    requested = prompt.casefold()
+    layouts = set()
+    if re.search(
+        r"\b(?:fund(?:ing)? ask|fund allocation|use of funds|budget split|fundraising ask)\b",
+        requested,
+    ):
+        layouts.add("ask_allocation")
+    if re.search(
+        r"\bmarket(?: snapshot| size| share| growth| drivers?| analysis| CAGR)?\b",
+        requested,
+    ):
+        layouts.add("market_snapshot")
+    if re.search(r"\b(?:workflow|user journey|how it works)\b", requested):
+        layouts.add("flow_steps")
+    if re.search(r"\b(?:competitive landscape|competitor landscape)\b", requested):
+        layouts.add("quadrants")
+    if re.search(r"\bclosing slide\b", requested):
+        layouts.add("closing")
+    return 1 + len(layouts)

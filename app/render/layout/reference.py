@@ -131,7 +131,7 @@ def render_ask_allocation(prs, data, theme: Theme):
         known_total = sum(item.pct or 0 for item in items)
         unknown_share = (100 - known_total) / sum(item.pct is None for item in items)
         values = [item.pct if item.pct is not None else unknown_share for item in items]
-    cx, cy, size = 7.65, 3.76, 2.9
+    cx, cy, size = 7.25, 3.76, 2.55
     chart_data = CategoryChartData()
     chart_data.categories = [item.label for item in items]
     chart_data.add_series("Allocation", values)
@@ -175,30 +175,40 @@ def render_ask_allocation(prs, data, theme: Theme):
         theta = 2 * math.pi * midpoint
         edge_x = cx + (size / 2) * math.sin(theta)
         edge_y = cy - (size / 2) * math.cos(theta)
-        label_x = cx + (size / 2 + 0.55) * math.sin(theta)
         label_y = cy - (size / 2 + 0.42) * math.cos(theta)
         right = math.sin(theta) >= 0
-        label_nodes.append((item, edge_x, edge_y, label_x, label_y, right))
+        label_nodes.append((item, edge_x, edge_y, label_y, right))
+
+    # Place labels in even columns around the chart. Narrow slices can have
+    # nearly identical angles, so following each slice midpoint directly
+    # causes their percentage labels to collide.
+    max_per_side = math.ceil(len(label_nodes) / 2)
+    for side in (False, True):
+        nodes = [node for node in label_nodes if node[4] is side]
+        if len(nodes) > max_per_side:
+            movable = sorted(nodes, key=lambda node: abs(node[1] - cx))
+            for node in movable[: len(nodes) - max_per_side]:
+                node_index = label_nodes.index(node)
+                item, edge_x, edge_y, label_y, _ = label_nodes[node_index]
+                label_nodes[node_index] = (item, edge_x, edge_y, label_y, not side)
 
     for side in (False, True):
-        nodes = sorted((node for node in label_nodes if node[5] is side), key=lambda node: node[4])
-        ys = [max(1.9, min(5.55, node[4])) for node in nodes]
-        gap = min(0.88, 3.55 / max(1, len(ys) - 1))
-        for index in range(1, len(ys)):
-            ys[index] = max(ys[index], ys[index - 1] + gap)
-        if ys and ys[-1] > 5.55:
-            shift = ys[-1] - 5.55
-            ys = [y - shift for y in ys]
+        nodes = sorted((node for node in label_nodes if node[4] is side), key=lambda node: node[3])
+        slot_count = len(nodes)
+        top, bottom = 1.9, 5.75
+        gap = (bottom - top) / max(1, slot_count - 1)
+        ys = [top + index * gap for index in range(slot_count)]
         for node, adjusted_y in zip(nodes, ys):
-            item, edge_x, edge_y, label_x, _, right = node
-            end_x = label_x + (0.12 if right else -0.12)
+            item, edge_x, edge_y, _, right = node
+            end_x = 8.58 if right else 5.92
             _line(slide, edge_x, edge_y, end_x, adjusted_y, color=MUTED, dashed=True)
-            box_x = min(10.05, label_x + 0.12) if right else max(3.82, label_x - 2.08)
+            box_x = 8.72 if right else 3.78
+            width = 2.5 if right else 2.05
             _text(
                 slide,
                 box_x,
                 adjusted_y - 0.31,
-                2.05,
+                width,
                 0.28,
                 f"{item.pct:.2f}%" if item.pct is not None else "[ % ]",
                 size=20,
@@ -210,7 +220,7 @@ def render_ask_allocation(prs, data, theme: Theme):
                 slide,
                 box_x,
                 adjusted_y - 0.015,
-                2.05,
+                width,
                 0.28,
                 item.label,
                 size=10,
@@ -357,6 +367,29 @@ def render_market_snapshot(prs, data, theme: Theme):
         _text(slide, 5.25, 2.45, 7.2, 0.55, "Add up to four market segments", size=14, color=MUTED)
 
     _market_table(slide, data)
+    if not data.table_rows:
+        _shape(slide, 0.5, 4.42, 12.31, 1.15, WHITE, kind=MSO_SHAPE.ROUNDED_RECTANGLE, line=LINE)
+        _text(
+            slide,
+            0.78,
+            4.64,
+            11.75,
+            0.28,
+            "Market inputs to complete",
+            size=14,
+            color=TEXT,
+            bold=True,
+        )
+        _text(
+            slide,
+            0.78,
+            5.02,
+            11.75,
+            0.3,
+            "[Add sourced market size, growth rates, segment shares, and drivers]",
+            size=12,
+            color=MUTED,
+        )
     return slide
 
 
@@ -364,7 +397,9 @@ def render_flow_steps(prs, data, theme: Theme):
     slide = new_slide(prs, theme)
     _title(slide, data.title, tagline=data.tagline, subtitle=data.subtitle, bg=PALE)
     steps = data.steps
-    left, right = 0.85, 12.48
+    card_w = min(3.0, max(1.52, (11.63 / (len(steps) - 1)) * 0.72))
+    left = max(0.85, card_w / 2 + 0.12)
+    right = 13.33 - left
     gap = (right - left) / (len(steps) - 1)
     centers = []
     for index in range(len(steps)):
@@ -372,7 +407,6 @@ def render_flow_steps(prs, data, theme: Theme):
         centers.append((left + index * gap, 2.8 + 0.48 * (1 - math.sin(math.pi * t))))
     for (x1, y1), (x2, y2) in zip(centers, centers[1:]):
         _line(slide, x1, y1, x2, y2, color=GREEN, width=2)
-    card_w = min(1.52, gap * 0.9)
     for index, (step, (cx, cy)) in enumerate(zip(steps, centers), start=1):
         _shape(slide, cx - 0.3, cy - 0.3, 0.6, 0.6, GREEN, kind=MSO_SHAPE.OVAL)
         _text(
@@ -483,6 +517,19 @@ def render_quadrants(prs, data, theme: Theme):
             run.font.size = Pt(9)
             run.font.bold = True
             run.font.color.rgb = TEXT
+        if not quadrant.names:
+            _text(
+                slide,
+                x + 0.42,
+                chip_top + 0.55,
+                5.18,
+                1.15,
+                "[Add verified competitor names or examples]",
+                size=13,
+                color=MUTED,
+                align=PP_ALIGN.CENTER,
+                valign=MSO_ANCHOR.MIDDLE,
+            )
     return slide
 
 

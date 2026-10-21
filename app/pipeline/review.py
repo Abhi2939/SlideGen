@@ -176,6 +176,24 @@ def _validate_review_references(
         )
 
 
+def _complete_regenerate_targets(
+    review: ReviewOutput,
+    outline: OutlineOutput,
+) -> ReviewOutput:
+    """Add any slides implied by review findings to the repair list."""
+    if review.passed:
+        return review
+    required = {index for issue in review.issues for index in issue.slide_indices}
+    missing_ids = set(review.missing_fact_ids)
+    required.update(
+        slide.index for slide in outline.slides if missing_ids & set(slide.required_fact_ids)
+    )
+    targets = sorted(required | set(review.regenerate_slide_indices))
+    if targets == review.regenerate_slide_indices:
+        return review
+    return review.model_copy(update={"regenerate_slide_indices": targets})
+
+
 def _repair_instructions(
     review: ReviewOutput,
     analysis: AnalysisOutput,
@@ -305,6 +323,7 @@ def review_deck(
         review = _filter_grounded_unsupported_claims(
             review, clean_prompt, slides, analysis, outline
         )
+        review = _complete_regenerate_targets(review, outline)
         try:
             _validate_review_references(review, analysis, outline)
             return review

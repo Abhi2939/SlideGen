@@ -124,6 +124,16 @@ _NUMERIC_VALUE_PATTERN = re.compile(
     r"(?P<suffix>\s*(?:%|k|m|b|thousand|million|billion))?(?![\w])",
     re.IGNORECASE,
 )
+_CURRENCY_AMOUNT_PATTERN = re.compile(
+    r"(?<![\w])(?:Rs\.?|INR|₹|USD|US\$|\$|EUR|€|GBP|£)\s*"
+    r"\d[\d,]*(?:\.\d+)?(?:\s*(?:crores?|cr|lakhs?|lakh|million|billion|[kmb]))?",
+    re.IGNORECASE,
+)
+_MARKET_SOURCE_PATTERN = re.compile(
+    r"\b(?:market|CAGR|market share|market size|segment share|industry growth|"
+    r"regional share|fintech sector)\b",
+    re.IGNORECASE,
+)
 _METADATA_LABEL_PATTERN = re.compile(
     r"\b(?:startup\s+name\s*:?[ \t]*[A-Z][\w'-]*|"
     r"brand(?:\s+name)?\s*:\s*[A-Z][\w'-]*)",
@@ -533,7 +543,28 @@ def _restore_verbatim_facts(slide: Slide, missing_facts: list[RequiredFact]) -> 
     if isinstance(slide, QuoteSlide) and len(facts) == 1 and len(facts[0]) <= 240:
         return slide.model_copy(update={"quote": facts[0]})
 
+    if isinstance(slide, AskAllocationSlide) and slide.ask is None:
+        for fact in facts:
+            amount = _CURRENCY_AMOUNT_PATTERN.search(fact)
+            if amount:
+                return slide.model_copy(update={"ask": " ".join(amount.group(0).split())})
+
     return slide
+
+
+def _remove_funding_amount_from_title(slide: Slide) -> Slide:
+    """Keep funding amounts on the allocation slide instead of duplicating them on the title."""
+    if not isinstance(slide, TitleSlide) or not slide.subtitle:
+        return slide
+    subtitle = _CURRENCY_AMOUNT_PATTERN.sub("", slide.subtitle)
+    subtitle = re.sub(
+        r"^\s*(?:raising|raise|funding ask|fundraising ask)\s*(?:for\s*)?",
+        "",
+        subtitle,
+        flags=re.IGNORECASE,
+    )
+    subtitle = re.sub(r"\s+", " ", subtitle).strip(" ,;:|–—-")
+    return slide.model_copy(update={"subtitle": subtitle or None})
 
 
 def _write_one(
@@ -620,6 +651,22 @@ def _write_one(
                 and len(re.findall(r"[a-z0-9]+", fact.text.casefold())) >= 3
                 and f" {_normalized_phrase(fact.text)} " in f" {normalized_content} "
             ]
+            if (
+                repeated_unassigned
+                and isinstance(slide, TitleSlide)
+                and any(_CURRENCY_AMOUNT_PATTERN.search(fact) for fact in repeated_unassigned)
+            ):
+                slide = _remove_funding_amount_from_title(slide)
+                text_content = _slide_text_content(slide)
+                normalized_content = _normalized_phrase(text_content)
+                repeated_unassigned = [
+                    fact.text
+                    for fact in analysis.required_facts
+                    if fact.verbatim
+                    and fact.id not in plan.required_fact_ids
+                    and len(re.findall(r"[a-z0-9]+", fact.text.casefold())) >= 3
+                    and f" {_normalized_phrase(fact.text)} " in f" {normalized_content} "
+                ]
             if repeated_unassigned:
                 raise ValueError(
                     "generated slide repeated verbatim facts assigned to other slides: "
@@ -702,6 +749,14 @@ def _write_one(
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
             )
+
+    if (
+        last_error is not None
+        and plan.layout == "market_snapshot"
+        and not any(_MARKET_SOURCE_PATTERN.search(fact.text) for fact in assigned_facts)
+        and "unsupported details" in str(last_error)
+    ):
+        return _placeholder_slide(plan, assigned_facts)
 
     if (
         last_error is not None

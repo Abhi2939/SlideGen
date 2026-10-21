@@ -3,7 +3,12 @@ import pytest
 from app.pipeline.analyze import MAX_PROMPT_CHARS, analyze_prompt
 from app.pipeline.grounding import unsupported_claim_categories
 from app.pipeline.models import AnalysisOutput, OutlineOutput
-from app.pipeline.outline import _ground_outline, _validate_requested_layouts, create_outline
+from app.pipeline.outline import (
+    _ensure_explicit_funding_layout,
+    _ground_outline,
+    _validate_requested_layouts,
+    create_outline,
+)
 
 
 class FakeGenerator:
@@ -63,6 +68,34 @@ def test_analyze_prompt_calls_structured_generator_with_analysis_contract():
     assert "Treat labels such as 'Startup name'" in kwargs["system_prompt"]
     assert "Separate factual source material from" in kwargs["system_prompt"]
     assert "presentation instructions" in kwargs["system_prompt"]
+
+
+def test_analyze_prompt_preserves_explicit_funding_amount_as_verbatim_fact():
+    generator = FakeGenerator([_analysis()])
+
+    result = analyze_prompt(
+        "Acme Pay is raising Rs. 14 Cr. Use of funds: Team 3.02%.",
+        generator,
+        "small-model",
+    )
+
+    assert [(fact.id, fact.text, fact.verbatim) for fact in result.required_facts] == [
+        (0, "Launch is June 1", True),
+        (1, "Rs. 14 Cr", True),
+    ]
+
+
+def test_analysis_reserves_space_for_each_requested_reference_layout():
+    generator = FakeGenerator([_analysis()])
+
+    result = analyze_prompt(
+        "Acme Pay is raising Rs. 14 Cr. Use of funds. Include market, how it works, "
+        "and competitive landscape.",
+        generator,
+        "small-model",
+    )
+
+    assert result.slide_count == 5
 
 
 def test_analyze_short_branded_beauty_brief_keeps_brand_and_exact_facts():
@@ -191,6 +224,51 @@ def test_reference_prompt_matrix_routes_content_to_reference_layouts():
 
     dogs = _outline()
     _validate_requested_layouts("Make a deck about dogs", dogs)
+
+
+def test_explicit_funding_layout_is_restored_without_replacing_other_reference_slides():
+    prompt = (
+        "Acme Pay raising Rs. 14 Cr. Use of funds: Team 3.02%. Include market, "
+        "how it works, and competitive landscape."
+    )
+    analysis = AnalysisOutput(
+        deck_title="Acme Pay",
+        deck_type="fundraising",
+        slide_count=6,
+        required_facts=[
+            {"id": 0, "text": "Rs. 14 Cr", "verbatim": True},
+            {"id": 1, "text": "Team 3.02%", "verbatim": True},
+        ],
+    )
+    outline = OutlineOutput(
+        deck_title="Acme Pay",
+        slides=[
+            {"index": 0, "title": "Acme Pay", "purpose": "Introduce", "layout": "title"},
+            {
+                "index": 1,
+                "title": "Funding",
+                "purpose": "Present the funding plan",
+                "layout": "bullets",
+            },
+            {"index": 2, "title": "Market", "purpose": "Market facts", "layout": "market_snapshot"},
+            {"index": 3, "title": "Journey", "purpose": "Workflow", "layout": "flow_steps"},
+            {"index": 4, "title": "Landscape", "purpose": "Competitors", "layout": "quadrants"},
+            {"index": 5, "title": "Close", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    result = _ensure_explicit_funding_layout(prompt, analysis, outline)
+
+    assert result.slides[1].layout == "ask_allocation"
+    assert result.slides[1].required_fact_ids == [0, 1]
+    assert {slide.layout for slide in result.slides} >= {
+        "ask_allocation",
+        "market_snapshot",
+        "flow_steps",
+        "quadrants",
+    }
+    validate_ids = [fact_id for slide in result.slides for fact_id in slide.required_fact_ids]
+    assert set(validate_ids) == {0, 1}
 
 
 @pytest.mark.parametrize(

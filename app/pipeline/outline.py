@@ -167,6 +167,83 @@ def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
         raise ValueError("the request asks for a closing slide, which must be last")
 
 
+def _ensure_explicit_funding_layout(
+    prompt: str, analysis: AnalysisOutput, outline: OutlineOutput
+) -> OutlineOutput:
+    """Route explicit funding asks and allocation facts to their dedicated slide."""
+    ask_requested = re.search(
+        r"\b(?:fund(?:ing)? ask|fund allocation|use of funds|budget split|fundraising ask)\b",
+        prompt,
+        re.IGNORECASE,
+    )
+    if not ask_requested:
+        return outline
+
+    plans = list(outline.slides)
+    protected_layouts = {"ask_allocation"}
+    requested = prompt.casefold()
+    if re.search(r"\bmarket(?: snapshot| size| share| growth| CAGR)?\b", requested):
+        protected_layouts.add("market_snapshot")
+    if re.search(r"\b(?:workflow|user journey|how it works)\b", requested):
+        protected_layouts.add("flow_steps")
+    if re.search(r"\b(?:competitive landscape|competitor landscape)\b", requested):
+        protected_layouts.add("quadrants")
+    ask_indices = [index for index, plan in enumerate(plans) if plan.layout == "ask_allocation"]
+    if ask_indices:
+        target_index = ask_indices[0]
+    else:
+        candidates = [
+            index
+            for index, plan in enumerate(plans[1:], start=1)
+            if plan.layout not in protected_layouts and plan.layout != "closing"
+        ]
+        if not candidates:
+            candidates = [
+                index for index, plan in enumerate(plans[1:], start=1) if plan.layout == "closing"
+            ]
+        if not candidates:
+            raise ValueError(
+                "the requested funding slide does not fit in the requested slide count"
+            )
+        funding_words = re.compile(
+            r"\b(?:fund|funding|ask|raising|raise|allocation|budget|capital)\b",
+            re.IGNORECASE,
+        )
+        target_index = next(
+            (
+                index
+                for index in candidates
+                if funding_words.search(
+                    " ".join([plans[index].title, plans[index].purpose, *plans[index].key_points])
+                )
+            ),
+            candidates[0],
+        )
+        plans[target_index] = plans[target_index].model_copy(
+            update={
+                "title": "Funding Ask & Allocation",
+                "purpose": "Present the supplied funding ask and use-of-funds allocation.",
+                "layout": "ask_allocation",
+            }
+        )
+
+    funding_fact_pattern = re.compile(
+        r"%|\b(?:Rs\.?|INR|USD|US\$|EUR|GBP|fund|funding|raising|allocation|"
+        r"contingency|marketing|capex|team)\b|₹|\$|€|£",
+        re.IGNORECASE,
+    )
+    funding_fact_ids = [
+        fact.id for fact in analysis.required_facts if funding_fact_pattern.search(fact.text)
+    ]
+    target = plans[target_index]
+    plans[target_index] = target.model_copy(
+        update={
+            "required_fact_ids": list(dict.fromkeys([*target.required_fact_ids, *funding_fact_ids]))
+        }
+    )
+    return outline.model_copy(update={"slides": plans})
+
+
 def create_outline(
     prompt: str,
     analysis: AnalysisOutput,
@@ -289,8 +366,11 @@ def create_outline(
         try:
             if outline.deck_title != analysis.deck_title:
                 raise ValueError("outline deck title does not match the analyzed deck title")
-            validate_outline_facts(analysis, outline)
             grounded_outline = _ground_outline(clean_prompt, analysis, outline)
+            grounded_outline = _ensure_explicit_funding_layout(
+                clean_prompt, analysis, grounded_outline
+            )
+            validate_outline_facts(analysis, grounded_outline)
             _validate_requested_layouts(clean_prompt, grounded_outline)
             return grounded_outline
         except ValueError as exc:

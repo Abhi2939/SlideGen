@@ -106,3 +106,77 @@ def test_reference_layout_fixture_renders_charts_tables_and_groups(tmp_path):
             assert shape.top >= 0
             assert shape.left + shape.width <= presentation.slide_width
             assert shape.top + shape.height <= presentation.slide_height
+
+
+def test_allocation_labels_do_not_overlap(tmp_path):
+    deck = Deck.model_validate(
+        {
+            "title": "Allocation check",
+            "slides": [
+                {"layout": "title", "title": "Allocation check"},
+                {
+                    "layout": "ask_allocation",
+                    "title": "Ask and Allocation",
+                    "ask": "Rs. 14 Cr",
+                    "items": [
+                        {"label": "Contingency / Buffer", "pct": 85.3},
+                        {"label": "Other indirect expenses", "pct": 6.94},
+                        {"label": "Team", "pct": 3.02},
+                        {"label": "Marketing", "pct": 2.57},
+                        {"label": "Direct expenses", "pct": 1.95},
+                        {"label": "Capex", "pct": 0.22},
+                    ],
+                },
+                {"layout": "closing", "title": "Done"},
+            ],
+        }
+    )
+    out = build_deck(deck, tmp_path / "allocation.pptx", strict=True)
+    slide = Presentation(str(out)).slides[1]
+    label_shapes = [
+        shape
+        for shape in slide.shapes
+        if shape.has_text_frame
+        and ("%" in shape.text or shape.text in {item.label for item in deck.slides[1].items})
+    ]
+
+    for index, shape in enumerate(label_shapes):
+        for other in label_shapes[index + 1 :]:
+            horizontal_overlap = (
+                shape.left < other.left + other.width and other.left < shape.left + shape.width
+            )
+            vertical_overlap = (
+                shape.top < other.top + other.height and other.top < shape.top + shape.height
+            )
+            assert not (horizontal_overlap and vertical_overlap), (shape.text, other.text)
+
+
+def test_empty_quadrants_show_explicit_name_placeholders(tmp_path):
+    deck = Deck.model_validate(
+        {
+            "title": "Landscape",
+            "slides": [
+                {"layout": "title", "title": "Landscape"},
+                {
+                    "layout": "quadrants",
+                    "title": "Competitive Landscape",
+                    "quadrants": [
+                        {"heading": "Wallets"},
+                        {"heading": "Cards"},
+                        {"heading": "Networks"},
+                        {"heading": "Other"},
+                    ],
+                },
+                {"layout": "closing", "title": "Done"},
+            ],
+        }
+    )
+    out = build_deck(deck, tmp_path / "quadrants.pptx", strict=True)
+    slide = Presentation(str(out)).slides[1]
+    placeholders = [
+        shape.text
+        for shape in slide.shapes
+        if shape.has_text_frame and "Add verified competitor names" in shape.text
+    ]
+
+    assert len(placeholders) == 4
