@@ -20,6 +20,7 @@ from app.pipeline.write_slides import (
     rewrite_slides,
     _numeric_data_issue,
     _placeholder_slide,
+    _slide_text_content,
     _source_contains_name,
     write_slides,
 )
@@ -338,6 +339,24 @@ def test_reference_layout_placeholders_validate(layout, expected_type):
         assert len(result.steps) >= 3
     if isinstance(result, QuadrantsSlide):
         assert len(result.quadrants) == 4
+
+
+def test_allocation_percentage_fact_is_in_visible_slide_text():
+    slide = AskAllocationSlide(
+        layout="ask_allocation",
+        title="Funding Ask & Use of Funds",
+        ask="Rs. 14 Cr",
+        items=[
+            {"label": "Contingency / Buffer", "pct": 85.3},
+            {"label": "Other indirect expenses", "pct": 6.94},
+            {"label": "Team", "pct": 3.02},
+            {"label": "Marketing", "pct": 2.57},
+            {"label": "Direct expenses", "pct": 1.95},
+            {"label": "Capex", "pct": 0.22},
+        ],
+    )
+
+    assert "Team 3.02%" in _slide_text_content(slide)
 
 
 def test_reference_numeric_layouts_reject_unprovided_values():

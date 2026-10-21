@@ -10,7 +10,7 @@ SlideGen turns a natural-language prompt into a structured presentation, reviews
 - Choose separate models for analysis, outlining, writing, and review.
 - Write slides concurrently with a configurable worker limit.
 - Review generated content and selectively regenerate slides with findings.
-- Render ten layouts: title, section, bullets, two-column, stat, process, comparison, chart, quote, and closing.
+- Render fourteen layouts: title, section, bullets, two-column, stat, process, comparison, chart, quote, closing, ask/allocation, market snapshot, workflow steps, and quadrants.
 - Save the result as a `.pptx` file or submit an asynchronous web job and download it in the browser.
 
 The web app stores jobs and generated files in SQLite and uses a bounded in-process worker pool. See [Deploy](#deploy) for a public service setup.
@@ -216,7 +216,9 @@ print(output_path)
 
 Structured output is validated at each LLM stage. Invalid structured responses receive bounded retries. Groq's `json_validate_failed` response is retried with a targeted JSON correction; quota and rate-limit errors are not repeated by the structured-output loop. The review repair path removes exact duplicate bullets reported by review, including duplicates across two-column slides, and can fall back to placeholders for persistent high-severity unsupported claims. If the final review still fails, `generate_deck()` raises `DeckReviewError` instead of returning a deck that failed QA.
 
-The deck schema is the shared contract between generation and rendering. It supports ten layouts and enforces content limits and layout-specific requirements in [app/core/deck_schema.py](app/core/deck_schema.py).
+The deck schema is the shared contract between generation and rendering. It supports fourteen layouts and enforces content limits and layout-specific requirements in [app/core/deck_schema.py](app/core/deck_schema.py).
+
+The four reference-specific layouts are `ask_allocation`, `market_snapshot`, `flow_steps`, and `quadrants`. They are available to the planner for funding splits, market overviews, workflows, and competitive landscapes. Their renderers are deterministic and covered by fixture/schema tests. Automated checks confirm that the layouts render as PowerPoint shapes and charts; they do not establish that live generated decks match the reference images visually.
 
 ## Tests
 
@@ -230,7 +232,7 @@ Run `ruff check .` and `ruff format --check app tests` for lint and format check
 
 The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including queue limits and rate limiting. They use fake LLM responses and do not require a live API key.
 
-Latest recorded local verification (2026-10-15): **122 tests passed** before the access-code removal. The automated suite has not been rerun after the subsequent pipeline changes through commit `74d9ff2`; no current test count is claimed. Ruff lint and format checks passed previously, and the project virtual environment had no dependency conflicts. Recent Render logs showed an investor-pitch job failing review for unsupported feature, workflow, pricing, team, and funding claims. Commit `74d9ff2` adds stronger investor-pitch grounding and a placeholder fallback, but that fix has not yet been confirmed by a live generation. The Docker image build also remains unverified because Docker Desktop's Linux engine was unavailable. Use `test.md` as the manual prompt checklist.
+Latest local working-tree verification (2026-10-21): **140 tests passed**; Ruff lint, format, and `git diff --check` passed. This includes a local, uncommitted fix for visible allocation-percentage fact validation. Tests use fixture/fake-provider data. No raster comparison against the reference screenshots or successful client-prompt generation has been confirmed. The public `/healthz` endpoint could not be reached from this workspace. The project owner built and ran Docker locally; reported generations failed first on Groq's TPM limit, then on required-fact validation (the latest log reports a missing fact on the “How It Works” slide). See `test.md`; automated tests do not confirm the client examples are reproduced.
 
 ## Visual QA
 
@@ -277,7 +279,7 @@ app/
     builder.py               Deck model to PowerPoint renderer
     fit.py                   Text sizing estimates
     theme.py                 Theme colors, fonts, and dimensions
-    layout/                  Ten slide layout renderers
+    layout/                  Fourteen slide layout renderers
 run_deck.py                  Command-line entry point
 Dockerfile                   Container entry point for the web service
 docker-entrypoint.sh         Writable data directory and non-root runtime user
