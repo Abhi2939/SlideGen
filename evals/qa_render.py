@@ -30,9 +30,17 @@ def find_soffice() -> str:
 
 def pptx_to_pdf(pptx_path: Path) -> Path:
     subprocess.run(
-        [find_soffice(), "--headless", "--convert-to", "pdf",
-         "--outdir", str(pptx_path.parent), str(pptx_path)],
-        check=True, timeout=180,
+        [
+            find_soffice(),
+            "--headless",
+            "--convert-to",
+            "pdf",
+            "--outdir",
+            str(pptx_path.parent),
+            str(pptx_path),
+        ],
+        check=True,
+        timeout=180,
     )
     return pptx_path.with_suffix(".pdf")
 
