@@ -318,6 +318,73 @@ def test_chart_placeholder_has_unique_title_and_positive_illustrative_values():
     assert all(value > 0 for series in result.series for value in series.values)
 
 
+def test_investor_slide_with_unsupported_claims_falls_back_to_placeholders():
+    class UnsupportedInvestorWriter:
+        def generate(self, output_model, **kwargs):
+            if output_model is TitleSlide:
+                return TitleSlide(layout="title", title="Invoice Reconciliation")
+            if output_model is BulletsSlide:
+                return BulletsSlide(
+                    layout="bullets",
+                    title="Our Solution",
+                    bullets=[
+                        {"text": "Integrates with accounting software"},
+                        {"text": "Significant time savings"},
+                    ],
+                )
+            if output_model is ClosingSlide:
+                return ClosingSlide(layout="closing", title="Thank You")
+            raise AssertionError(f"unexpected output model: {output_model}")
+
+    analysis = AnalysisOutput(
+        deck_title="Invoice Reconciliation",
+        deck_type="investor pitch",
+        slide_count=3,
+        required_facts=[
+            {
+                "id": 0,
+                "text": "Automates invoice reconciliation for accounting firms",
+                "verbatim": True,
+            }
+        ],
+    )
+    outline = OutlineOutput(
+        deck_title="Invoice Reconciliation",
+        slides=[
+            {
+                "index": 0,
+                "title": "Invoice Reconciliation",
+                "purpose": "Introduce the company",
+                "layout": "title",
+            },
+            {
+                "index": 1,
+                "title": "Our Solution",
+                "purpose": "Present the supported product detail",
+                "layout": "bullets",
+                "required_fact_ids": [0],
+            },
+            {"index": 2, "title": "Thank You", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    slides = write_slides(
+        "Create an 8-slide investor pitch for a B2B SaaS startup that automates invoice reconciliation for accounting firms. Audience: seed investors.",
+        analysis,
+        outline,
+        UnsupportedInvestorWriter(),
+        "test-model",
+    )
+
+    assert isinstance(slides[1], BulletsSlide)
+    assert any(
+        bullet.text == "Automates invoice reconciliation for accounting firms"
+        for bullet in slides[1].bullets
+    )
+    assert not any("Integrates" in bullet.text for bullet in slides[1].bullets)
+    assert any("Replace this placeholder" in bullet.text for bullet in slides[1].bullets)
+
+
 @pytest.mark.parametrize(
     "layout,expected_type",
     [

@@ -1,7 +1,10 @@
 import pytest
 
 from app.pipeline.analyze import MAX_PROMPT_CHARS, analyze_prompt
-from app.pipeline.grounding import unsupported_claim_categories
+from app.pipeline.grounding import (
+    unsupported_claim_categories,
+    unsupported_investor_claim_categories,
+)
 from app.pipeline.models import AnalysisOutput, OutlineOutput
 from app.pipeline.outline import (
     _ensure_explicit_funding_layout,
@@ -303,6 +306,22 @@ def test_explicit_funding_layout_is_restored_without_replacing_other_reference_s
 )
 def test_grounding_allows_claim_categories_already_in_source(prompt, claim):
     assert unsupported_claim_categories(claim, prompt) == []
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Integrates with existing accounting software.",
+        "Significant time savings for every firm.",
+        "Freemium pilot for accounting firms.",
+        "Growing demand for automation.",
+    ],
+)
+def test_investor_grounding_flags_unsupported_specifics(claim):
+    prompt = "Create a seed investor pitch for invoice reconciliation software."
+
+    assert unsupported_investor_claim_categories(claim, prompt)
+    assert unsupported_investor_claim_categories(claim, f"{prompt} {claim}") == []
 
 
 def test_tier_two_problem_framing_is_allowed_but_market_figures_remain_guarded():

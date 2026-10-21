@@ -66,6 +66,36 @@ _TIER3_MARKET_PATTERN = re.compile(
     r"\bresearch\s+(?:shows|suggests|finds)\b",
     re.IGNORECASE,
 )
+_INVESTOR_PROMPT_PATTERN = re.compile(
+    r"\b(?:investor|fundraising|seed round|pitch deck)\b",
+    re.IGNORECASE,
+)
+_UNSUPPORTED_INVESTOR_PATTERNS = {
+    "unsupported product integrations or technical mechanisms": re.compile(
+        r"\b(?:integrat(?:e|es|ed|ing|ion|ions)|connect(?:s|ed|ing)?\s+with|"
+        r"sync(?:s|ed|ing)?\s+with|API|configurable rules|matching logic|"
+        r"data ingestion|exception handling|audit[- ]ready|multiple sources)\b",
+        re.IGNORECASE,
+    ),
+    "unsupported product outcomes or performance claims": re.compile(
+        r"\b(?:time[- ]consuming|time savings?|cost savings?|error rates?|"
+        r"accuracy|efficiency|scalability issues|significant improvements?|"
+        r"reduce(?:s|d)?\s+(?:time|cost|errors?)|save(?:s|d)?\s+time)\b",
+        re.IGNORECASE,
+    ),
+    "unsupported pricing or go-to-market details": re.compile(
+        r"\b(?:freemium|free trial|pilot program|channel partners?|direct sales|"
+        r"revenue model|revenue breakdown|subscription pricing|per[- ]seat|"
+        r"transaction fee|pricing tier|go[- ]to[- ]market strategy)\b",
+        re.IGNORECASE,
+    ),
+    "unsupported market evidence or traction": re.compile(
+        r"\b(?:growing demand|rising demand|large (?:accounting firm )?base|"
+        r"large number of accounting firms|market opportunity|rapidly growing market|"
+        r"customer traction|strong adoption|high demand)\b",
+        re.IGNORECASE,
+    ),
+}
 
 _PARAPHRASE_STOP_WORDS = {
     "a",
@@ -161,4 +191,15 @@ def unsupported_claim_categories(
         if category not in allowed_categories
         and pattern.search(text)
         and not pattern.search(source)
+    ]
+
+
+def unsupported_investor_claim_categories(text: str, source_text: str) -> list[str]:
+    """Flag investor-pitch specifics that require source evidence or placeholders."""
+    if not _INVESTOR_PROMPT_PATTERN.search(source_text):
+        return []
+    return [
+        category
+        for category, pattern in _UNSUPPORTED_INVESTOR_PATTERNS.items()
+        if pattern.search(text) and not pattern.search(source_text)
     ]

@@ -26,7 +26,10 @@ from app.core.deck_schema import (
 )
 from app.core.errors import SlideWriteError
 from app.llm.structured import StructuredGenerator
-from app.pipeline.grounding import unsupported_claim_categories
+from app.pipeline.grounding import (
+    unsupported_claim_categories,
+    unsupported_investor_claim_categories,
+)
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact, validate_outline_facts
 
 
@@ -374,10 +377,8 @@ def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
             }
         )
     elif plan.layout == "flow_steps":
-        steps = [
-            {"title": point[:50], "detail": None} for point in plan.key_points[:8] if point.strip()
-        ]
-        defaults = ["Understand the need", "Consider suitable options", "Choose a next step"]
+        steps = [{"title": fact[:50], "detail": None} for fact in fact_texts[:8] if fact.strip()]
+        defaults = ["Add supplied step 1", "Add supplied step 2", "Add supplied step 3"]
         while len(steps) < 3:
             steps.append({"title": defaults[len(steps)], "detail": None})
         payload.update(
@@ -732,6 +733,14 @@ def _write_one(
                     "generated slide added unsupported details in these categories: "
                     f"{', '.join(unsupported_claims)}"
                 )
+            unsupported_investor_claims = unsupported_investor_claim_categories(
+                text_content, prompt
+            )
+            if unsupported_investor_claims:
+                raise ValueError(
+                    "generated slide added unsupported investor details in these categories: "
+                    f"{', '.join(unsupported_investor_claims)}"
+                )
             if isinstance(slide, QuadrantsSlide):
                 supplied_source = prompt.casefold()
                 slide = _remove_deck_brand_from_quadrants(slide, analysis.deck_title)
@@ -784,6 +793,23 @@ def _write_one(
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
             )
+
+    if (
+        last_error is not None
+        and bool(re.search(r"\b(?:investor|fundraising|seed round|pitch deck)\b", prompt, re.I))
+        and any(
+            marker in str(last_error)
+            for marker in (
+                "unsupported details",
+                "unsupported investor details",
+                "numeric details",
+                "numeric data",
+                "presentation instructions",
+                "deck's own slide or visual counts",
+            )
+        )
+    ):
+        return _placeholder_slide(plan, assigned_facts)
 
     if (
         last_error is not None
