@@ -252,6 +252,73 @@ def _ensure_explicit_funding_layout(
     return outline.model_copy(update={"slides": plans})
 
 
+def _route_investor_product_facts(
+    prompt: str, analysis: AnalysisOutput, outline: OutlineOutput
+) -> OutlineOutput:
+    """Keep product facts off an investor deck's problem slide."""
+    if not re.search(r"\b(?:investor|fundraising|seed round|pitch deck)\b", prompt, re.I):
+        return outline
+
+    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+    product_pattern = re.compile(
+        r"\b(?:automate|automation|invoice|reconciliation|software|SaaS|platform|product|tool)\b",
+        re.IGNORECASE,
+    )
+    problem_evidence_pattern = re.compile(
+        r"\b(?:problem|challenge|pain|struggle|manual|error|inefficien|time[- ]consuming)\b",
+        re.IGNORECASE,
+    )
+    plans = list(outline.slides)
+    problem_indices = [
+        index
+        for index, plan in enumerate(plans[1:], start=1)
+        if re.search(
+            r"\b(?:problem|challenge|pain points?)\b", f"{plan.title} {plan.purpose}", re.I
+        )
+    ]
+    for problem_index in problem_indices:
+        problem = plans[problem_index]
+        move_ids = [
+            fact_id
+            for fact_id in problem.required_fact_ids
+            if fact_id in facts_by_id
+            and product_pattern.search(facts_by_id[fact_id].text)
+            and not problem_evidence_pattern.search(facts_by_id[fact_id].text)
+        ]
+        if not move_ids:
+            continue
+        candidates = [
+            index
+            for index, plan in enumerate(plans[1:], start=1)
+            if index != problem_index and plan.layout != "closing"
+        ]
+        if not candidates:
+            continue
+        solution_words = re.compile(r"\b(?:solution|product|overview|how it works)\b", re.I)
+        target_index = next(
+            (
+                index
+                for index in candidates
+                if solution_words.search(f"{plans[index].title} {plans[index].purpose}")
+            ),
+            candidates[0],
+        )
+        plans[problem_index] = problem.model_copy(
+            update={
+                "required_fact_ids": [
+                    fact_id for fact_id in problem.required_fact_ids if fact_id not in move_ids
+                ]
+            }
+        )
+        target = plans[target_index]
+        plans[target_index] = target.model_copy(
+            update={
+                "required_fact_ids": list(dict.fromkeys([*target.required_fact_ids, *move_ids]))
+            }
+        )
+    return outline.model_copy(update={"slides": plans})
+
+
 def create_outline(
     prompt: str,
     analysis: AnalysisOutput,
@@ -376,6 +443,9 @@ def create_outline(
                 raise ValueError("outline deck title does not match the analyzed deck title")
             grounded_outline = _ground_outline(clean_prompt, analysis, outline)
             grounded_outline = _ensure_explicit_funding_layout(
+                clean_prompt, analysis, grounded_outline
+            )
+            grounded_outline = _route_investor_product_facts(
                 clean_prompt, analysis, grounded_outline
             )
             validate_outline_facts(analysis, grounded_outline)

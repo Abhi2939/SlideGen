@@ -9,6 +9,7 @@ from app.pipeline.models import AnalysisOutput, OutlineOutput
 from app.pipeline.outline import (
     _ensure_explicit_funding_layout,
     _ground_outline,
+    _route_investor_product_facts,
     _validate_requested_layouts,
     create_outline,
 )
@@ -285,6 +286,53 @@ def test_explicit_funding_layout_is_restored_without_replacing_other_reference_s
     }
     validate_ids = [fact_id for slide in result.slides for fact_id in slide.required_fact_ids]
     assert set(validate_ids) == {0, 1}
+
+
+def test_investor_product_fact_moves_from_problem_to_solution_slide():
+    analysis = AnalysisOutput(
+        deck_title="Invoice Reconciliation",
+        deck_type="investor pitch",
+        slide_count=4,
+        required_facts=[
+            {
+                "id": 0,
+                "text": "Automates invoice reconciliation for accounting firms",
+                "verbatim": True,
+            }
+        ],
+    )
+    outline = OutlineOutput(
+        deck_title="Invoice Reconciliation",
+        slides=[
+            {
+                "index": 0,
+                "title": "Invoice Reconciliation",
+                "purpose": "Introduce",
+                "layout": "title",
+            },
+            {
+                "index": 1,
+                "title": "The Problem",
+                "purpose": "Describe the problem",
+                "layout": "bullets",
+                "required_fact_ids": [0],
+            },
+            {
+                "index": 2,
+                "title": "Our Solution",
+                "purpose": "Present the product",
+                "layout": "bullets",
+            },
+            {"index": 3, "title": "Close", "purpose": "Close", "layout": "closing"},
+        ],
+    )
+
+    result = _route_investor_product_facts(
+        "Create a seed investor pitch for invoice reconciliation software.", analysis, outline
+    )
+
+    assert result.slides[1].required_fact_ids == []
+    assert result.slides[2].required_fact_ids == [0]
 
 
 @pytest.mark.parametrize(

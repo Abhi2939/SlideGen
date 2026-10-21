@@ -256,6 +256,10 @@ def _can_use_sparse_company_placeholder(prompt: str, analysis: AnalysisOutput) -
     return all(_is_generic_business_fact(fact) for fact in analysis.required_facts)
 
 
+def _is_investor_prompt(prompt: str) -> bool:
+    return bool(re.search(r"\b(?:investor|fundraising|seed round|pitch deck)\b", prompt, re.I))
+
+
 def _is_generic_business_fact(fact: RequiredFact) -> bool:
     return set(_normalized_phrase(fact.text).split()) <= _GENERIC_BUSINESS_TOKENS
 
@@ -616,6 +620,12 @@ def _write_one(
     assigned_facts: list[RequiredFact] = [
         facts_by_id[fact_id] for fact_id in plan.required_fact_ids
     ]
+    is_problem_slide = re.search(
+        r"\b(?:problem|challenge|pain points?)\b", f"{plan.title} {plan.purpose}", re.I
+    )
+    if _is_investor_prompt(prompt) and is_problem_slide and not assigned_facts:
+        placeholder = _placeholder_slide(plan)
+        return placeholder.model_copy(update={"title": plan.title})
     if plan.layout == "market_snapshot" and not any(
         _MARKET_SOURCE_PATTERN.search(fact.text) for fact in assigned_facts
     ):
@@ -796,7 +806,7 @@ def _write_one(
 
     if (
         last_error is not None
-        and bool(re.search(r"\b(?:investor|fundraising|seed round|pitch deck)\b", prompt, re.I))
+        and _is_investor_prompt(prompt)
         and any(
             marker in str(last_error)
             for marker in (
