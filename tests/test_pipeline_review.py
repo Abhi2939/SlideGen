@@ -1,6 +1,6 @@
 import pytest
 
-from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
+from app.core.deck_schema import AskAllocationSlide, BulletsSlide, ClosingSlide, TitleSlide
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact, ReviewOutput
 from app.pipeline.review import review_and_repair_deck, review_deck
 
@@ -151,6 +151,92 @@ def test_review_ignores_missing_fact_already_visible_on_another_slide():
     assert result.passed
     assert result.issues == []
     assert result.missing_fact_ids == []
+
+
+def test_investor_review_accepts_placeholder_problem_slide():
+    analysis, outline, slides = _inputs()
+    analysis = analysis.model_copy(update={"deck_type": "investor pitch", "required_facts": []})
+    plans = list(outline.slides)
+    plans[1] = plans[1].model_copy(
+        update={
+            "title": "The Problem",
+            "purpose": "Add verified problem points",
+            "required_fact_ids": [],
+        }
+    )
+    outline = outline.model_copy(update={"slides": plans})
+    slides[1] = BulletsSlide(
+        layout="bullets",
+        title="The Problem",
+        bullets=[
+            {"text": "Add a verified company detail from the source material."},
+            {"text": "Replace this placeholder with information you provide."},
+        ],
+    )
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "unsupported_claim",
+                        "severity": "high",
+                        "detail": "Slide contains placeholder text and lacks key points.",
+                        "slide_indices": [1],
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            )
+        ]
+    )
+
+    result = review_deck(
+        "Create a seed investor pitch.", analysis, outline, slides, generator, "review-model"
+    )
+
+    assert result.passed
+
+
+def test_investor_review_accepts_missing_funding_ask_placeholder():
+    analysis, outline, _ = _inputs()
+    analysis = analysis.model_copy(update={"deck_type": "investor pitch", "required_facts": []})
+    plans = list(outline.slides)
+    plans[1] = plans[1].model_copy(
+        update={"title": "Funding Ask", "layout": "ask_allocation", "required_fact_ids": []}
+    )
+    outline = outline.model_copy(update={"slides": plans})
+    slides = [
+        TitleSlide(layout="title", title="Launch plan"),
+        AskAllocationSlide(
+            layout="ask_allocation",
+            title="Funding Ask",
+            ask=None,
+            items=[{"label": "Category 1"}, {"label": "Category 2"}],
+        ),
+        ClosingSlide(layout="closing", title="Next steps"),
+    ]
+    generator = FakeReviewGenerator(
+        [
+            ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "other",
+                        "severity": "low",
+                        "detail": "Funding Ask slide missing ask details.",
+                        "slide_indices": [1],
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            )
+        ]
+    )
+
+    result = review_deck(
+        "Create a seed investor pitch.", analysis, outline, slides, generator, "review-model"
+    )
+
+    assert result.passed
 
 
 def test_review_and_repair_rewrites_only_flagged_slide_then_rechecks():

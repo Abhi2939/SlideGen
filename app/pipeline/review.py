@@ -5,7 +5,7 @@ import json
 import re
 from collections.abc import Callable
 
-from app.core.deck_schema import Bullet, BulletsSlide, Slide, TwoColumnSlide
+from app.core.deck_schema import AskAllocationSlide, Bullet, BulletsSlide, Slide, TwoColumnSlide
 from app.llm.structured import StructuredGenerator
 from app.pipeline.models import (
     AnalysisOutput,
@@ -237,6 +237,65 @@ def _normalized_review_text(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
 
 
+def _filter_investor_placeholder_findings(
+    review: ReviewOutput,
+    prompt: str,
+    analysis: AnalysisOutput,
+    outline: OutlineOutput,
+    slides: list[Slide],
+) -> ReviewOutput:
+    """Accept explicit investor placeholders when the missing source data was not supplied."""
+    if not re.search(r"\b(?:investor|fundraising|seed round|pitch deck)\b", prompt, re.I):
+        return review
+
+    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+    currency_amount = re.compile(
+        r"(?:Rs\.?|INR|₹|USD|US\$|\$|EUR|€|GBP|£)\s*\d|\b\d[\d,.]*\s*(?:cr|crore|lakh|million|billion)\b",
+        re.IGNORECASE,
+    )
+    missing_ask = not currency_amount.search(prompt) and not any(
+        currency_amount.search(fact.text) for fact in analysis.required_facts
+    )
+    kept = []
+    for issue in review.issues:
+        valid_issue_indices = bool(issue.slide_indices) and all(
+            0 <= index < len(slides) for index in issue.slide_indices
+        )
+        filter_placeholder_claim = (
+            issue.category == "unsupported_claim"
+            and valid_issue_indices
+            and all(
+                any(
+                    marker in _slide_text_content(slides[index]).casefold()
+                    for marker in ("add a verified", "replace this placeholder", "[add ", "tbd")
+                )
+                and all(
+                    _normalized_review_text(facts_by_id[fact_id].text)
+                    in _normalized_review_text(_slide_text_content(slides[index]))
+                    for fact_id in outline.slides[index].required_fact_ids
+                )
+                for index in issue.slide_indices
+            )
+        )
+        filter_missing_ask = (
+            issue.category == "other"
+            and missing_ask
+            and valid_issue_indices
+            and any(
+                isinstance(slides[index], AskAllocationSlide) and slides[index].ask is None
+                for index in issue.slide_indices
+            )
+        )
+        if not (filter_placeholder_claim or filter_missing_ask):
+            kept.append(issue)
+
+    if len(kept) == len(review.issues):
+        return review
+    if not kept and not review.missing_fact_ids:
+        return ReviewOutput(passed=True)
+    return review.model_copy(update={"issues": kept})
+
+
 def _repair_instructions(
     review: ReviewOutput,
     analysis: AnalysisOutput,
@@ -367,6 +426,9 @@ def review_deck(
             review, clean_prompt, slides, analysis, outline
         )
         review = _filter_missing_facts_present_in_deck(review, analysis, slides)
+        review = _filter_investor_placeholder_findings(
+            review, clean_prompt, analysis, outline, slides
+        )
         review = _complete_regenerate_targets(review, outline)
         try:
             _validate_review_references(review, analysis, outline)
