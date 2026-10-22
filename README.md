@@ -93,7 +93,7 @@ The CLI sends prompts to the configured LLM provider. Generation can fail if the
 
 ## Prompt handling
 
-SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, business scope, or business details. The writer retries numeric claims not present in the analyzed facts and common unsupported claims about products, operations, reach, strategy, and company capabilities. If a company prompt supplies no specific facts, SlideGen uses explicit placeholders and illustrative charts; provide concrete product, market, and operating details for a finished company-specific deck.
+SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, business scope, or business details. Analysis removes unsupported numeric and common commercial claims from its fact inventory. Requests without an explicit slide count use at least the four-slide concise-brief default. The writer retries numeric claims not present in the analyzed facts and common unsupported claims about products, operations, reach, strategy, and company capabilities. If a company prompt supplies no specific facts, SlideGen uses explicit placeholders and illustrative charts; provide concrete product, market, and operating details for a finished company-specific deck.
 
 For investor pitches, asking for a seed-investor audience does not establish product features, integrations, workflows, pricing, traction, founder experience, valuation, runway, or a funding amount. The writer is instructed to use placeholders for those details when the prompt omits them. If the reviewer still finds high-severity unsupported claims after its rewrite rounds, the pipeline replaces those slides with explicit placeholders that preserve facts assigned to the slides, then reviews the deck again. Supply verified details for a more complete pitch.
 
@@ -113,7 +113,7 @@ Open <http://127.0.0.1:8000>. The job database and presentations are written und
 
 The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves the current stage and queue position from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the public health check.
 
-If a job fails, the browser shows a generic error. Check the terminal running Uvicorn for the job's traceback; when final review fails, the log also includes the review findings. The API keeps this detail out of the user-facing error.
+If Groq returns a quota or rate-limit error, the browser shows "The AI provider's daily or rate limit was reached. Please try again later." The job stops without SDK or pipeline limit retries. Other failures show a generic error. Check the terminal running Uvicorn for the job's traceback; when final review fails, the log also includes the review findings. The API keeps this detail out of the user-facing error.
 
 ### Linux and macOS
 
@@ -232,7 +232,23 @@ Run `ruff check .` and `ruff format --check app tests` for lint and format check
 
 The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including queue limits and rate limiting. They use fake LLM responses and do not require a live API key.
 
-Latest local verification (2026-10-21): **163 tests passed**; Ruff lint, format, and `git diff --check` passed. Tests use fixture/fake-provider data. A fresh Acme Pay generation was inspected against all four reference slides. The deck preserves supplied allocations and uses placeholders for missing market metrics and competitor names. The workflow renderer now displays eight stages, with explicit placeholders for stages not supplied in the prompt. The broad compositions match, but photography, logos, icons, and populated market/competitor detail remain absent. Two current-code investor attempts stopped at outline generation because of Groq daily token quota; the latest reported 199,976/200,000 used, requested 1,609, and an 11m24s cooldown. No corrected investor deck was produced, so its live behavior and the public `/healthz` endpoint remain unverified. See `test.md`.
+Latest local verification (2026-10-22): **213 tests passed**; Ruff lint, format, and `git diff --check` completed successfully. New offline checks cover reference-layout geometry, quota failures, token counting, smoke-script ordering/stop behavior, and adversarial sparse prompts. LibreOffice/PyMuPDF PNGs of the reference fixture, dense-content fixtures, and the existing Acme Pay deck were inspected against the four local screenshots. This is not a new live generation or a Microsoft PowerPoint check. Photos, logos, icons, market evidence, and competitor identities remain absent from generated Acme Pay content. Render, `/healthz`, and current-code live prompts remain unverified.
+
+## Token usage and manual live smoke
+
+Each web job logs one counts-only summary for `analyze`, `outline`, `write`, `review`, and `repair`, including input, output, and total tokens reported by Groq. Completed calls count even when JSON validation triggers another attempt. Failed requests with no usage data cannot be counted. Repair rewrites are separate from initial writing; repeat reviews count under review. The public job response is unchanged. No new prompt or completion text is logged.
+
+SDK retries are disabled. A provider HTTP 429 stops structured retries and pending slide work, marks the job failed with the safe limit message, and logs no raw quota response. The job record is failed immediately even when another request is in flight. Those calls cannot be interrupted; the final token summary is emitted after they finish.
+
+After confirming the key and available quota, run explicitly:
+
+```powershell
+python scripts/live_smoke.py
+```
+
+The script runs Acme Pay, product launch, Blush-style, dogs, and the seed-investor prompt in order, one at a time. It saves decks in `outputs/live-smoke/`, prints completed prompt names, token totals, slide counts, layouts, and review findings, and exits non-zero on failure. It stops at the first quota/rate-limit error. Its control flow was tested with fakes; no live smoke run was performed in this checkpoint.
+
+Token-saving options were not applied: analysis/review already default to the smaller configured 20b model; existing stage model overrides permit other Groq choices. The Python/CLI `max_repair_rounds` option can reduce rewrite cost while retaining final review (possibly producing more failed jobs). A shorter review context would require a separate change and grounding evaluation. There are no measured live token savings yet. Estimate savings from counts: one omitted repair round removes its rewritten-slide tokens plus one full review; shrinking review input by 25% would remove about 25% of review input tokens, not total deck tokens.
 
 ## Visual QA
 
@@ -243,13 +259,17 @@ python -m pip install pymupdf
 winget install TheDocumentFoundation.LibreOffice
 ```
 
-Then render the fixture:
+Then render the fixtures or an existing generated deck:
 
 ```powershell
+python -m evals.qa_render tests/fixtures/decks/reference_layouts.json
 python -m evals.qa_render tests/fixtures/decks/all_layouts.json
+python -m evals.qa_render data/outputs/acme-pay-final.pptx
 ```
 
-The `.pptx`, `.pdf`, and PNG outputs are written under `evals/outputs/`. LibreOffice may substitute fonts, so its text wrapping can differ slightly from Microsoft PowerPoint.
+The `.pptx`, `.pdf`, and PNG outputs are written under `outputs/qa/` (override with `--output-dir`). LibreOffice uses an isolated temporary profile. It may substitute fonts or interpret charts differently from Microsoft PowerPoint.
+
+`tests/test_reference_geometry.py` checks slide bounds and nonempty text-region overlaps (including table cells) for minimum, typical, and maximum fixture content. These checks require neither an LLM nor LibreOffice; they do not prove glyph fit or reference similarity. Reference layouts share a Calibri theme, fitted text, muted placeholders, a table height cap, and workflow spacing for the actual 3-8 supplied steps. Workflows are no longer padded to eight stages. Dense eight-step descriptions can shrink to 7 pt, and highly concentrated allocations still have crowded leader tracks. Check those cases in real PowerPoint; the geometry checks do not prove visual acceptance.
 
 ## Project structure
 

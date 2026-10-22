@@ -191,9 +191,9 @@ def render_ask_allocation(prs, data, theme: Theme):
         hole.set("val", "66")
     _text(
         slide,
-        cx - 0.65,
+        cx - 0.5,
         cy - 0.35,
-        1.3,
+        1.0,
         0.7,
         data.center_label.replace("Fund Allocation", "Fund\nAllocation"),
         size=12,
