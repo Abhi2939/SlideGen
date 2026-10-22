@@ -89,6 +89,27 @@ def test_review_retries_invalid_slide_references():
     assert "out-of-range slide indices" in generator.calls[1][1]["user_prompt"]
 
 
+def test_review_sees_only_visible_content_and_keeps_notes_only_missing_fact():
+    analysis, outline, slides = _inputs()
+    slides[1] = slides[1].model_copy(update={"speaker_notes": "Launch is June 1"})
+    missing = ReviewOutput(passed=False, missing_fact_ids=[0], regenerate_slide_indices=[1])
+    generator = FakeReviewGenerator([missing])
+
+    review = review_deck(
+        "Make a launch deck. Launch is June 1.", analysis, outline, slides, generator, "fake"
+    )
+
+    content = json.loads(
+        generator.calls[0][1]["user_prompt"].split(
+            "GENERATED DECK (each slide has an explicit zero-based slide_index):\n"
+        )[1]
+    )
+    assert all("speaker_notes" not in slide["content"] for slide in content)
+    assert "Launch is June 1" not in json.dumps(content)
+    assert review.missing_fact_ids == [0]
+    assert review.regenerate_slide_indices == [1]
+
+
 def test_four_slide_review_corrects_phantom_slides_then_repairs_real_slide():
     analysis, outline, slides = _inputs()
     analysis = analysis.model_copy(update={"slide_count": 4})
@@ -169,7 +190,9 @@ def test_four_slide_review_corrects_phantom_slides_then_repairs_real_slide():
         )[1]
     )
     assert [slide["slide_index"] for slide in content] == [0, 1, 2, 3]
-    assert [slide["content"] for slide in content] == [s.model_dump(mode="json") for s in slides]
+    assert [slide["content"] for slide in content] == [
+        s.model_dump(mode="json", exclude={"speaker_notes"}) for s in slides
+    ]
     retry = generator.calls[1][1]["user_prompt"]
     assert "Valid slide indices: [0, 1, 2, 3]" in retry.split("CORRECTION REQUIRED:")[1]
     assert json.loads(retry.split("REJECTED REVIEW JSON:\n")[1]) == rejected.model_dump()

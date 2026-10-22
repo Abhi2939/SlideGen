@@ -11,7 +11,7 @@ from app.llm.client import LLMClient
 from app.llm.factory import create_llm_client
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import MAX_PROMPT_CHARS, analyze_prompt
-from app.pipeline.briefs import short_beauty_brief
+from app.pipeline.briefs import beauty_brand
 from app.pipeline.outline import create_outline
 from app.pipeline.review import review_and_repair_deck
 from app.pipeline.write_slides import write_slides
@@ -55,7 +55,7 @@ def generate_deck(
             progress_callback(stage)
 
     settings = settings or Settings.from_env()
-    if theme == "default" and short_beauty_brief(clean_prompt) is not None:
+    if theme == "default" and beauty_brand(clean_prompt) is not None:
         theme = "blush"
     models = {
         stage: settings.model_for(stage) for stage in ("analyze", "outline", "write", "review")

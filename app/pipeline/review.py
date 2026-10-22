@@ -50,6 +50,9 @@ For investor decks, explicit placeholders for unsupported traction, team,
 pricing, product features, workflows, and fundraising details are scaffolding;
 do not treat them as unsupported claims or require invented replacements.
 Check for missing required facts, duplicated points, Tier 3 grounding violations,
+and supplied launch or growth plans hidden only in speaker notes. Required
+facts must appear visibly on the slides; notes do not satisfy coverage. Keep
+future plans distinct from achieved traction or proven results. Check for
 text likely to overflow, and coherence across slides. Treat the
 user's supplied product details, slogans, and claims, along with straightforward
 paraphrases of them, as supported. Do not treat a broad business type as
@@ -410,7 +413,10 @@ def review_deck(
     validate_outline_facts(analysis, outline)
 
     deck_content = [
-        {"slide_index": index, "content": slide.model_dump(mode="json")}
+        {
+            "slide_index": index,
+            "content": slide.model_dump(mode="json", exclude={"speaker_notes"}),
+        }
         for index, slide in enumerate(slides)
     ]
     reference_contract = (

@@ -9,7 +9,7 @@ from app.config import Settings
 from app.llm.client import LLMClient
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import DEFAULT_SLIDE_COUNT
-from app.pipeline.briefs import short_beauty_brief
+from app.pipeline.briefs import beauty_brand
 from app.pipeline.orchestrator import generate_deck
 from app.pipeline.write_slides import _slide_text_content
 from app.llm.usage import record_usage
@@ -178,7 +178,7 @@ def test_invented_specifics_are_never_promoted_to_supplied_facts(prompt, claim):
 
 
 def test_unbranded_startup_description_is_not_a_brand_name():
-    assert short_beauty_brief(BLUSH) is None
+    assert beauty_brand(BLUSH) is None
 
 
 def test_pipeline_reports_counts_and_review_without_changing_deck():

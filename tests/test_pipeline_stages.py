@@ -103,25 +103,30 @@ def test_analysis_reserves_space_for_each_requested_reference_layout():
     assert result.slide_count == 5
 
 
-def test_analyze_short_branded_beauty_brief_keeps_brand_and_exact_facts():
-    generator = FakeGenerator([_analysis()])
+def test_analyze_branded_beauty_preserves_model_fact_inventory_and_slide_count():
     prompt = (
         "Startup name blush, Makeup made only for YOU. Custom-blended foundation, "
         "lipstick and skincare matched to your skin tone, undertone & style. "
         "No more wrong shades."
     )
-
-    result = analyze_prompt(prompt, generator, "small-model")
+    expected = AnalysisOutput(
+        deck_title="Beauty introduction",
+        deck_type="product introduction",
+        slide_count=6,
+        required_facts=[
+            {"id": 0, "text": "Blush", "verbatim": True},
+            {"id": 1, "text": "Makeup made only for YOU.", "verbatim": True},
+            {"id": 2, "text": "Custom-blended foundation, lipstick and skincare."},
+            {"id": 3, "text": "Matched to skin tone, undertone and style."},
+            {"id": 4, "text": "No more wrong shades.", "verbatim": True},
+        ],
+    )
+    result = analyze_prompt(prompt, FakeGenerator([expected]), "small-model")
 
     assert result.deck_title == "Blush"
-    assert result.slide_count == 4
-    assert [fact.text for fact in result.required_facts] == [
-        "Blush",
-        "Makeup made only for YOU.",
-        "Custom-blended foundation, lipstick and skincare matched to your skin tone, undertone & style.",
-        "No more wrong shades.",
-    ]
-    assert all(fact.verbatim for fact in result.required_facts)
+    assert result.slide_count == 6
+    assert result.deck_type == expected.deck_type
+    assert result.required_facts == expected.required_facts
 
 
 @pytest.mark.parametrize("prompt", ["", "  "])
@@ -466,7 +471,7 @@ def test_flow_outline_allows_conceptual_assessment_and_selection_steps():
     assert result.slides[1].key_points == ["Assess needs", "Select an option"]
 
 
-def test_outline_uses_compact_branded_beauty_structure_without_more_llm_calls():
+def test_branded_beauty_uses_normal_outline_stage():
     prompt = (
         "Startup name blush, Makeup made only for YOU. Custom-blended foundation, "
         "lipstick and skincare matched to your skin tone, undertone & style. "
@@ -474,32 +479,18 @@ def test_outline_uses_compact_branded_beauty_structure_without_more_llm_calls():
     )
     analysis = AnalysisOutput(
         deck_title="Blush",
-        deck_type="branded beauty product introduction",
-        slide_count=4,
-        required_facts=[
-            {"id": 0, "text": "Blush", "verbatim": True},
-            {"id": 1, "text": "Makeup made only for YOU.", "verbatim": True},
-            {
-                "id": 2,
-                "text": "Custom-blended foundation, lipstick and skincare matched to your skin tone, undertone & style.",
-                "verbatim": True,
-            },
-            {"id": 3, "text": "No more wrong shades.", "verbatim": True},
-        ],
+        deck_type="product introduction",
+        slide_count=3,
+        required_facts=[{"id": 0, "text": "Makeup made only for YOU."}],
     )
-    generator = FakeGenerator([])
+    expected = _outline(title="Blush")
+    generator = FakeGenerator([expected])
 
     result = create_outline(prompt, analysis, generator, "small-model")
 
-    assert len(result.slides) == 4
-    assert [slide.layout for slide in result.slides] == [
-        "title",
-        "bullets",
-        "two_column",
-        "closing",
-    ]
-    assert result.slides[0].title == "Blush"
-    assert not generator.calls
+    assert result == expected
+    assert generator.calls[0][0] is OutlineOutput
+    assert len(generator.calls) == 1
 
 
 def test_outline_rejects_empty_prompt_before_model_call():

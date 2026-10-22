@@ -56,6 +56,8 @@ WRITE_SYSTEM_PROMPT = """You are the slide-writing stage of a presentation gener
 Write only the requested slide and return JSON matching its exact schema.
 Keep the planned title and layout unchanged. Use the supplied key points and
 include every fact assigned to this slide. Preserve verbatim facts exactly.
+Required facts must appear in visible slide text; speaker notes do not count.
+Keep supplied launch and growth activities as plans, not achieved results.
 Treat requests such as slide count, layout, "include charts", and "cover these
 topics" as instructions for your work, never as slide copy. Do not repeat or
 paraphrase those instructions as presentation content.
@@ -789,7 +791,7 @@ def _write_one(
                     fact for fact in assigned_facts if fact.verbatim and fact.id in missing_verbatim
                 ]
                 slide = _restore_verbatim_facts(slide, missing_facts)
-                text_content = "\n".join(_text_leaves(slide.model_dump(mode="json")))
+                text_content = _slide_text_content(slide)
                 missing_verbatim = [
                     fact.id for fact in missing_facts if fact.text not in text_content
                 ]

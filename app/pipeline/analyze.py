@@ -3,7 +3,7 @@
 import re
 from decimal import Decimal
 
-from app.pipeline.briefs import short_beauty_brief
+from app.pipeline.briefs import beauty_brand
 from app.pipeline.grounding import unsupported_specific_claim_categories
 from app.pipeline.models import AnalysisOutput, RequiredFact
 from app.llm.structured import StructuredGenerator
@@ -47,7 +47,12 @@ if that is safer than guessing. Treat labels such as 'Startup name' or 'Brand
 name' as metadata: extract and use the value as the brand name, and do not
 copy the label into presentation text. Choose a slide count from 3 to 30 that
 suits the request. For a concise brief with no requested slide
-count, choose at least four slides and do not repeat facts just to fill pages. Return all user facts and product claims that must appear
+count, choose at least four slides and do not repeat facts just to fill pages.
+A brief with product details, personalization, a launch plan, and later growth
+activities needs enough content slides to cover each subject distinctly. Keep
+every supplied launch channel and growth activity in required_facts. These are
+future plans, not achieved traction; do not omit them as unsupported claims.
+Return all user facts and product claims that must appear
 in the deck as uniquely identified required_facts, using IDs starting at 0
 with no gaps. Do not turn a supplied product promise into a broader guarantee."""
 
@@ -113,23 +118,8 @@ def analyze_prompt(
                 ]
             }
         )
-    brief = short_beauty_brief(clean_prompt)
-    if brief is None:
-        return analysis
-
-    facts = [RequiredFact(id=0, text=brief.brand, verbatim=True)]
-    facts.extend(
-        RequiredFact(id=index, text=text, verbatim=True)
-        for index, text in enumerate(brief.facts, start=1)
-    )
-    return analysis.model_copy(
-        update={
-            "deck_title": brief.brand,
-            "slide_count": 4,
-            "required_facts": facts,
-            "deck_type": "branded beauty product introduction",
-        }
-    )
+    brand = beauty_brand(clean_prompt)
+    return analysis.model_copy(update={"deck_title": brand}) if brand else analysis
 
 
 def _extract_funding_amount(prompt: str) -> str | None:
