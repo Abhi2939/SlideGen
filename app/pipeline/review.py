@@ -60,7 +60,12 @@ from the request as unsupported. Do not require contact details, financials,
 or fundraising content unless the user requested them. Do not mistake an absent
 optional detail for a missing required fact. For every real
 issue, identify the affected zero-based slide indices and specify a concise
-repair instruction. When passed is false, include every affected slide in
+repair instruction. Use only the valid slide indices and required fact IDs
+listed in the review reference contract. Each generated slide has an explicit
+slide_index; copy that value, not its position counted from one. Review only
+the supplied slides. If content is missing, attach the finding to affected
+existing slides; never reference an imagined or proposed additional slide.
+When passed is false, include every affected slide in
 regenerate_slide_indices. For each missing_fact_id, include every outline slide
 assigned that fact. Set passed to true only when the deck has no material
 issues. Do not invent facts while reviewing. Return JSON only."""
@@ -146,6 +151,8 @@ def _validate_review_references(
     review: ReviewOutput,
     analysis: AnalysisOutput,
     outline: OutlineOutput,
+    *,
+    require_repair_targets: bool = True,
 ) -> None:
     slide_count = len(outline.slides)
     known_facts = {fact.id for fact in analysis.required_facts}
@@ -159,7 +166,7 @@ def _validate_review_references(
     if invalid_indices:
         raise ValueError(f"review references out-of-range slide indices: {invalid_indices}")
 
-    if review.passed:
+    if review.passed or not require_repair_targets:
         return
     if not review.regenerate_slide_indices:
         raise ValueError("failed review must identify at least one slide to regenerate")
@@ -402,12 +409,38 @@ def review_deck(
         raise ValueError("outline deck title does not match the analyzed deck title")
     validate_outline_facts(analysis, outline)
 
-    deck_content = [slide.model_dump(mode="json") for slide in slides]
+    deck_content = [
+        {"slide_index": index, "content": slide.model_dump(mode="json")}
+        for index, slide in enumerate(slides)
+    ]
+    reference_contract = (
+        f"This deck contains exactly {len(slides)} slides. "
+        f"Valid slide indices: {list(range(len(slides)))}. "
+        f"Valid required fact IDs: {sorted(fact.id for fact in analysis.required_facts)}. "
+        "issues[].slide_indices and regenerate_slide_indices must use valid slide indices. "
+        "missing_fact_ids must use valid required fact IDs. An empty fact-ID list means no fact IDs "
+        "may be reported missing. Do not infer additional slides or renumber slides."
+    )
+    # These are prompt constraints for Groq JSON mode; semantic validation
+    # below still rejects any invalid references returned by the model.
+    response_schema = ReviewOutput.model_json_schema()
+    slide_ids = {"type": "integer", "enum": list(range(len(slides)))}
+    response_schema["properties"]["regenerate_slide_indices"]["items"] = slide_ids
+    response_schema["$defs"]["ReviewIssue"]["properties"]["slide_indices"]["items"] = slide_ids
+    missing_ids = response_schema["properties"]["missing_fact_ids"]
+    if analysis.required_facts:
+        missing_ids["items"] = {
+            "type": "integer",
+            "enum": sorted(fact.id for fact in analysis.required_facts),
+        }
+    else:
+        missing_ids["maxItems"] = 0
     request = (
+        f"REVIEW REFERENCE CONTRACT:\n{reference_contract}\n\n"
         f"ORIGINAL USER REQUEST:\n{clean_prompt}\n\n"
         f"ANALYZED BRIEF:\n{analysis.model_dump_json(indent=2)}\n\n"
         f"SLIDE OUTLINE:\n{outline.model_dump_json(indent=2)}\n\n"
-        "GENERATED DECK (slide indices are zero-based):\n"
+        "GENERATED DECK (each slide has an explicit zero-based slide_index):\n"
         f"{json.dumps(deck_content, ensure_ascii=False, indent=2)}"
     )
     correction = ""
@@ -421,25 +454,34 @@ def review_deck(
             user_prompt=request + correction,
             temperature=0.1,
             max_tokens=max_tokens,
+            response_schema=response_schema,
         )
-        review = _filter_grounded_unsupported_claims(
-            review, clean_prompt, slides, analysis, outline
-        )
-        review = _filter_missing_facts_present_in_deck(review, analysis, slides)
-        review = _filter_investor_placeholder_findings(
-            review, clean_prompt, analysis, outline, slides
-        )
-        review = _complete_regenerate_targets(review, outline)
         try:
-            _validate_review_references(review, analysis, outline)
-            return review
+            # Reject malformed references before any finding can be dismissed.
+            # Missing repair targets can still be completed from valid findings.
+            _validate_review_references(review, analysis, outline, require_repair_targets=False)
+            validated_review = _filter_grounded_unsupported_claims(
+                review, clean_prompt, slides, analysis, outline
+            )
+            validated_review = _filter_missing_facts_present_in_deck(
+                validated_review, analysis, slides
+            )
+            validated_review = _filter_investor_placeholder_findings(
+                validated_review, clean_prompt, analysis, outline, slides
+            )
+            validated_review = _complete_regenerate_targets(validated_review, outline)
+            _validate_review_references(validated_review, analysis, outline)
+            return validated_review
         except ValueError as exc:
             last_error = exc
             correction = (
                 "\n\nCORRECTION REQUIRED: The prior review failed reference validation: "
-                f"{exc}. Return corrected review JSON with valid fact and slide references. "
+                f"{exc}.\n{reference_contract}\n"
+                "Recheck the supplied slides and return the complete corrected review JSON. "
+                "Keep real findings and attach them to the actual affected slide_index. "
                 "When passed is false, regenerate_slide_indices must include every slide "
-                "listed in issues and every outline slide assigned a missing_fact_id."
+                "listed in issues and every outline slide assigned a missing_fact_id.\n"
+                f"REJECTED REVIEW JSON:\n{review.model_dump_json()}"
             )
 
     assert last_error is not None

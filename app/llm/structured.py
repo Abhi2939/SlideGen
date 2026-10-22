@@ -55,8 +55,13 @@ class StructuredGenerator:
         user_prompt: str,
         temperature: float = 0.2,
         max_tokens: int | None = None,
+        response_schema: Mapping[str, Any] | None = None,
     ) -> T:
-        schema = output_model.model_json_schema()
+        # A stage may narrow references to the current job's IDs. The output
+        # model and stage validators remain authoritative after generation.
+        schema = (
+            response_schema if response_schema is not None else output_model.model_json_schema()
+        )
         messages: list[Mapping[str, str]] = [
             {
                 "role": "system",

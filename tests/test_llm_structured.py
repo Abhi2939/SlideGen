@@ -38,6 +38,28 @@ def test_structured_generator_validates_response():
     assert provider.calls[0][1]["response_format"] == {"type": "json_object"}
 
 
+def test_request_specific_schema_is_sent_but_output_model_still_validates():
+    schema = Result.model_json_schema()
+    schema["properties"]["title"]["enum"] = ["Ready"]
+    provider = FakeProvider(['{"wrong":"field"}', '{"title":"Ready"}'])
+
+    result = StructuredGenerator(LLMClient(provider)).generate(
+        Result,
+        stage="review",
+        model="test-model",
+        system_prompt="Return a title.",
+        user_prompt="Make a title.",
+        response_schema=schema,
+    )
+
+    assert result.title == "Ready"
+    assert len(provider.calls) == 2
+    sent_schema = json.loads(provider.calls[0][0][0]["content"].split("JSON Schema:\n")[1])
+    assert sent_schema == schema
+    assert provider.calls[0][1]["response_format"] == {"type": "json_object"}
+    assert "enum" not in Result.model_json_schema()["properties"]["title"]
+
+
 def test_structured_generator_retries_invalid_json():
     provider = FakeProvider(["not json", '{"title":"Fixed"}'])
     result = StructuredGenerator(LLMClient(provider), max_attempts=2).generate(
