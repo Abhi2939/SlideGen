@@ -222,6 +222,8 @@ The four reference-specific layouts are `ask_allocation`, `market_snapshot`, `fl
 
 ## Tests
 
+Current implementation checkpoint: `874674e` on `main`, pushed to `origin/main` on 2026-10-22. It includes the reference-layout QA, quota/token accounting, sparse-prompt safeguards, review-reference correction (`82f2dfd`), and provider parse-recovery correction (`874674e`). The Render revision and successful live generation after these fixes have not been checked. The owner-supplied deployment logs show startup and accepted jobs, followed by review and analysis failures; startup alone does not establish generation success.
+
 Install development dependencies with `python -m pip install -r requirements-dev.txt`, then run the suite from the project root:
 
 ```powershell
@@ -287,7 +289,9 @@ app/
     client.py                Provider-neutral client interface
     factory.py               Provider construction
     groq_provider.py         Groq chat-completion adapter
+    schema.py                Strict-schema preparation for bounded recovery
     structured.py            JSON parsing, schema validation, and retries
+    usage.py                 Counts-only per-stage token accounting
   pipeline/
     analyze.py               Prompt analysis
     models.py                Stage contracts
@@ -301,6 +305,7 @@ app/
     theme.py                 Theme colors, fonts, and dimensions
     layout/                  Fourteen slide layout renderers
 run_deck.py                  Command-line entry point
+scripts/live_smoke.py         Ordered manual live-generation checks
 Dockerfile                   Container entry point for the web service
 docker-entrypoint.sh         Writable data directory and non-root runtime user
 render.yaml                  Render Blueprint with persistent disk and health check
