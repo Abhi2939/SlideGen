@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from pptx import Presentation
+from pptx.oxml.ns import qn
 
 from app.core.deck_schema import Deck
 from app.core.deck_schema import LAYOUTS
@@ -88,6 +89,9 @@ def test_reference_layout_fixture_renders_charts_tables_and_groups(tmp_path):
     assert len(presentation.slides) == 6
     allocation = presentation.slides[1]
     assert any(shape.has_chart for shape in allocation.shapes)
+    plot = next(shape.chart.plots[0] for shape in allocation.shapes if shape.has_chart)
+    assert plot._element.find(qn("c:firstSliceAng")).get("val") == "180"
+    assert plot._element.find(qn("c:holeSize")).get("val") == "66"
     assert any("85.30%" in shape.text for shape in allocation.shapes if shape.has_text_frame)
     market = presentation.slides[2]
     assert any(shape.has_table for shape in market.shapes)
@@ -182,7 +186,7 @@ def test_empty_quadrants_show_explicit_name_placeholders(tmp_path):
     assert len(placeholders) == 4
 
 
-def test_flow_reference_renders_eight_stages_and_labels_missing_steps(tmp_path):
+def test_flow_reference_preserves_supplied_stage_count(tmp_path):
     deck = Deck.model_validate(
         {
             "title": "Workflow",
@@ -205,5 +209,5 @@ def test_flow_reference_renders_eight_stages_and_labels_missing_steps(tmp_path):
     slide = Presentation(str(out)).slides[1]
     texts = [shape.text for shape in slide.shapes if shape.has_text_frame]
 
-    assert sum(text.isdigit() for text in texts) == 8
-    assert texts.count("[Add verified step]") == 5
+    assert sum(text.isdigit() for text in texts) == 3
+    assert "[Add verified step]" not in texts

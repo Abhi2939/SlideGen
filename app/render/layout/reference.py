@@ -12,17 +12,30 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 from app.render.common import add_text, new_slide
+from app.render.fit import text_height
 from app.render.theme import Theme
 
 
-NAVY = RGBColor.from_string("1B365D")
-BLUE = RGBColor.from_string("263FB8")
-GREEN = RGBColor.from_string("7DBE1E")
-TEXT = RGBColor.from_string("333333")
-MUTED = RGBColor.from_string("6B7280")
-LINE = RGBColor.from_string("D1D5DB")
-PALE = RGBColor.from_string("F3F4F6")
-WHITE = RGBColor.from_string("FFFFFF")
+REFERENCE_THEME = {
+    "font": "Calibri",
+    "navy": "1B365D",
+    "blue": "263FB8",
+    "green": "7DBE1E",
+    "text": "333333",
+    "muted": "6B7280",
+    "line": "D1D5DB",
+    "pale": "F3F4F6",
+    "white": "FFFFFF",
+}
+FONT = REFERENCE_THEME["font"]
+NAVY = RGBColor.from_string(REFERENCE_THEME["navy"])
+BLUE = RGBColor.from_string(REFERENCE_THEME["blue"])
+GREEN = RGBColor.from_string(REFERENCE_THEME["green"])
+TEXT = RGBColor.from_string(REFERENCE_THEME["text"])
+MUTED = RGBColor.from_string(REFERENCE_THEME["muted"])
+LINE = RGBColor.from_string(REFERENCE_THEME["line"])
+PALE = RGBColor.from_string(REFERENCE_THEME["pale"])
+WHITE = RGBColor.from_string(REFERENCE_THEME["white"])
 PALETTE = [
     "1B365D",
     "B8BCC2",
@@ -33,6 +46,12 @@ PALETTE = [
     "7DBE1E",
 ]
 PLACEHOLDER = "[Add value]"
+
+
+def _fit_size(text, size, w, h):
+    while size > 7 and text_height(text, size, Inches(w)) > Inches(h):
+        size -= 0.5
+    return size
 
 
 def _shape(slide, x, y, w, h, fill, *, kind=MSO_SHAPE.RECTANGLE, line=None):
@@ -64,8 +83,12 @@ def _text(
     bold=False,
     align=PP_ALIGN.LEFT,
     valign=MSO_ANCHOR.TOP,
-    font="Calibri",
+    font=FONT,
 ):
+    value = PLACEHOLDER if value is None else str(value)
+    if value.startswith("[") or value.casefold().startswith(("add verified", "add supplied")):
+        color = LINE if color == WHITE else MUTED
+    size = _fit_size(value, size, w, h)
     box = add_text(
         slide,
         Inches(x),
@@ -80,6 +103,18 @@ def _text(
         align=align,
         anchor=valign,
     )
+    if "\n" in value:
+        # Native line breaks preserve paragraph centering in LibreOffice too.
+        p = box.text_frame.paragraphs[0]
+        p.runs[0].text = value.split("\n")[0]
+        for part in value.split("\n")[1:]:
+            p.add_line_break()
+            run = p.add_run()
+            run.text = part
+            run.font.name = font
+            run.font.size = Pt(size)
+            run.font.bold = bold
+            run.font.color.rgb = color
     return box
 
 
@@ -87,6 +122,7 @@ def _line(slide, x1, y1, x2, y2, *, color=LINE, width=1, dashed=False):
     connector = slide.shapes.add_connector(
         MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2)
     )
+    connector.shadow.inherit = False
     connector.line.color.rgb = color
     connector.line.width = Pt(width)
     if dashed:
@@ -118,10 +154,10 @@ def render_ask_allocation(prs, data, theme: Theme):
     p.alignment = PP_ALIGN.CENTER
     run = p.add_run()
     run.text = data.ask or PLACEHOLDER
-    run.font.name = "Calibri"
-    run.font.size = Pt(36)
+    run.font.name = FONT
+    run.font.size = Pt(_fit_size(run.text, 36, 3.17, 3.3))
     run.font.bold = True
-    run.font.color.rgb = WHITE
+    run.font.color.rgb = LINE if not data.ask else WHITE
 
     items = data.items
     complete = all(item.pct is not None for item in items)
@@ -146,6 +182,7 @@ def render_ask_allocation(prs, data, theme: Theme):
     chart.has_legend = False
     chart.has_title = False
     plot = chart.plots[0]
+    plot._element.find(qn("c:firstSliceAng")).set("val", "180")
     for index, point in enumerate(plot.series[0].points):
         point.format.fill.solid()
         point.format.fill.fore_color.rgb = RGBColor.from_string(PALETTE[index % len(PALETTE)])
@@ -154,11 +191,11 @@ def render_ask_allocation(prs, data, theme: Theme):
         hole.set("val", "66")
     _text(
         slide,
-        cx - 0.77,
+        cx - 0.65,
         cy - 0.35,
-        1.54,
+        1.3,
         0.7,
-        data.center_label,
+        data.center_label.replace("Fund Allocation", "Fund\nAllocation"),
         size=12,
         color=NAVY,
         bold=True,
@@ -172,36 +209,27 @@ def render_ask_allocation(prs, data, theme: Theme):
     for item, value in zip(items, values):
         midpoint = accumulated + value / total / 2
         accumulated += value / total
-        theta = 2 * math.pi * midpoint
-        edge_x = cx + (size / 2) * math.sin(theta)
-        edge_y = cy - (size / 2) * math.cos(theta)
+        theta = math.pi + 2 * math.pi * midpoint
+        edge_x = cx + (size * 0.43) * math.sin(theta)
+        edge_y = cy - (size * 0.43) * math.cos(theta)
         label_y = cy - (size / 2 + 0.42) * math.cos(theta)
         right = math.sin(theta) >= 0
         label_nodes.append((item, edge_x, edge_y, label_y, right))
 
-    # Place labels in even columns around the chart. Narrow slices can have
-    # nearly identical angles, so following each slice midpoint directly
-    # causes their percentage labels to collide.
-    max_per_side = math.ceil(len(label_nodes) / 2)
+    # Keep labels on their slice's side, in edge order. Elbows stay outside
+    # the ring and terminate before the text column.
     for side in (False, True):
-        nodes = [node for node in label_nodes if node[4] is side]
-        if len(nodes) > max_per_side:
-            movable = sorted(nodes, key=lambda node: abs(node[1] - cx))
-            for node in movable[: len(nodes) - max_per_side]:
-                node_index = label_nodes.index(node)
-                item, edge_x, edge_y, label_y, _ = label_nodes[node_index]
-                label_nodes[node_index] = (item, edge_x, edge_y, label_y, not side)
-
-    for side in (False, True):
-        nodes = sorted((node for node in label_nodes if node[4] is side), key=lambda node: node[3])
+        nodes = sorted((node for node in label_nodes if node[4] is side), key=lambda node: node[2])
         slot_count = len(nodes)
-        top, bottom = 1.9, 5.75
+        top, bottom = 1.85, 6.15
         gap = (bottom - top) / max(1, slot_count - 1)
-        ys = [top + index * gap for index in range(slot_count)]
+        ys = [cy] if slot_count == 1 else [top + index * gap for index in range(slot_count)]
         for node, adjusted_y in zip(nodes, ys):
             item, edge_x, edge_y, _, right = node
             end_x = 8.58 if right else 5.92
-            _line(slide, edge_x, edge_y, end_x, adjusted_y, color=MUTED, dashed=True)
+            elbow_x = cx + (size / 2 + 0.03) * (1 if right else -1)
+            _line(slide, edge_x, edge_y, elbow_x, edge_y, color=MUTED, dashed=True)
+            _line(slide, elbow_x, edge_y, end_x, adjusted_y, color=MUTED, dashed=True)
             box_x = 8.72 if right else 3.78
             width = 2.5 if right else 2.05
             _text(
@@ -219,9 +247,9 @@ def render_ask_allocation(prs, data, theme: Theme):
             _text(
                 slide,
                 box_x,
-                adjusted_y - 0.015,
+                adjusted_y + 0.015,
                 width,
-                0.28,
+                0.5,
                 item.label,
                 size=10,
                 color=TEXT,
@@ -248,14 +276,15 @@ def _market_table(slide, data):
     rows = len(data.table_rows) + 1
     cols = len(data.table_headers)
     table = slide.shapes.add_table(
-        rows, cols, Inches(0.48), Inches(4.46), Inches(12.35), Inches(0.34 * rows)
+        rows, cols, Inches(0.48), Inches(4.46), Inches(12.35), Inches(min(2.62, 0.44 * rows))
     ).table
     table.first_row = False
     table.horz_banding = False
-    for column in table.columns:
-        column.width = Inches(12.35 / cols)
+    widths = [0.37, 0.21, 0.25, 0.17] if cols == 4 else [1 / cols] * cols
+    for column, fraction in zip(table.columns, widths):
+        column.width = Inches(12.35 * fraction)
 
-    def style(cell, text, *, header=False, fill=WHITE, color=TEXT):
+    def style(cell, text, cell_width, row_height, *, header=False, fill=WHITE, color=TEXT):
         cell.fill.solid()
         cell.fill.fore_color.rgb = fill
         cell.margin_left = Inches(0.08)
@@ -268,13 +297,25 @@ def _market_table(slide, data):
         p = tf.paragraphs[0]
         run = p.add_run()
         run.text = text
-        run.font.name = "Calibri"
-        run.font.size = Pt(9 if not header else 10)
+        run.font.name = FONT
+        run.font.size = Pt(
+            _fit_size(text, 9 if not header else 10, cell_width - 0.14, row_height - 0.05)
+        )
         run.font.bold = header
-        run.font.color.rgb = color
+        run.font.color.rgb = (
+            MUTED if text.startswith("[") or text.casefold().startswith("add verified") else color
+        )
 
     for col, header in enumerate(data.table_headers):
-        style(table.cell(0, col), header, header=True, fill=GREEN, color=WHITE)
+        style(
+            table.cell(0, col),
+            header,
+            table.columns[col].width / Inches(1),
+            table.rows[0].height / Inches(1),
+            header=True,
+            fill=GREEN,
+            color=WHITE,
+        )
     for row_index, row in enumerate(data.table_rows, start=1):
         for col, value in enumerate(row):
             fill = WHITE if row_index % 2 else PALE
@@ -286,7 +327,13 @@ def _market_table(slide, data):
                     fill = RGBColor.from_string("FDE9B8")
                 elif "long" in lower:
                     fill = RGBColor.from_string("DDEFC4")
-            style(table.cell(row_index, col), value, fill=fill)
+            style(
+                table.cell(row_index, col),
+                value,
+                table.columns[col].width / Inches(1),
+                table.rows[row_index].height / Inches(1),
+                fill=fill,
+            )
 
 
 def render_market_snapshot(prs, data, theme: Theme):
@@ -294,7 +341,7 @@ def render_market_snapshot(prs, data, theme: Theme):
     _title(slide, data.title, subtitle=data.subtitle, bg=PALE)
 
     _shape(slide, 0.5, 1.48, 4.18, 2.55, BLUE, kind=MSO_SHAPE.ROUNDED_RECTANGLE)
-    _text(slide, 0.78, 1.7, 3.55, 0.34, data.end_label, size=12, color=WHITE)
+    _text(slide, 0.78, 1.7, 3.55, 0.30, data.end_label, size=12, color=WHITE)
     _text(
         slide,
         0.78,
@@ -350,7 +397,7 @@ def render_market_snapshot(prs, data, theme: Theme):
                 bold=True,
             )
             _text(slide, x, 2.78, column_width - 0.22, 0.28, "↓", size=17, color=GREEN, bold=True)
-            _text(slide, x, 3.08, column_width - 0.22, 0.55, segment.next_text, size=10, color=TEXT)
+            _text(slide, x, 3.08, column_width - 0.22, 0.43, segment.next_text, size=10, color=TEXT)
             if segment.next_value:
                 _text(
                     slide,
@@ -396,8 +443,8 @@ def render_market_snapshot(prs, data, theme: Theme):
 def render_flow_steps(prs, data, theme: Theme):
     slide = new_slide(prs, theme)
     _title(slide, data.title, tagline=data.tagline, subtitle=data.subtitle, bg=PALE)
-    steps = [*data.steps, *([None] * (8 - len(data.steps)))]
-    card_w = min(3.0, max(1.52, (11.63 / (len(steps) - 1)) * 0.72))
+    steps = data.steps
+    card_w = min(3.0, 11.6 / len(steps))
     left = max(0.85, card_w / 2 + 0.12)
     right = 13.33 - left
     gap = (right - left) / (len(steps) - 1)
@@ -405,7 +452,11 @@ def render_flow_steps(prs, data, theme: Theme):
     for index in range(len(steps)):
         t = index / (len(steps) - 1)
         centers.append((left + index * gap, 2.8 + 0.48 * (1 - math.sin(math.pi * t))))
-    for (x1, y1), (x2, y2) in zip(centers, centers[1:]):
+    arc = [
+        (left + (right - left) * i / 32, 2.8 + 0.48 * (1 - math.sin(math.pi * i / 32)))
+        for i in range(33)
+    ]
+    for (x1, y1), (x2, y2) in zip(arc, arc[1:]):
         _line(slide, x1, y1, x2, y2, color=GREEN, width=2)
     for index, (step, (cx, cy)) in enumerate(zip(steps, centers), start=1):
         _shape(slide, cx - 0.3, cy - 0.3, 0.6, 0.6, GREEN, kind=MSO_SHAPE.OVAL)
@@ -443,18 +494,19 @@ def render_flow_steps(prs, data, theme: Theme):
         title_p = tf.paragraphs[0]
         title_p.alignment = PP_ALIGN.CENTER
         title_run = title_p.add_run()
-        title_run.text = step.title if step else "[Add verified step]"
-        title_run.font.name = "Calibri"
-        title_run.font.size = Pt(10)
+        title_run.text = step.title
+        title_run.font.name = FONT
+        title_size = _fit_size(step.title, 12, card_w - 0.24, 0.65 if step.detail else 1.18)
+        title_run.font.size = Pt(title_size)
         title_run.font.bold = True
-        title_run.font.color.rgb = TEXT
-        if step and step.detail:
+        title_run.font.color.rgb = MUTED if step.title.startswith("[") else TEXT
+        if step.detail:
             detail_p = tf.add_paragraph()
             detail_p.alignment = PP_ALIGN.CENTER
             detail_run = detail_p.add_run()
             detail_run.text = step.detail
-            detail_run.font.name = "Calibri"
-            detail_run.font.size = Pt(8)
+            detail_run.font.name = FONT
+            detail_run.font.size = Pt(_fit_size(step.detail, 9, card_w - 0.24, 0.53))
             detail_run.font.color.rgb = MUTED
     return slide
 
@@ -499,7 +551,7 @@ def render_quadrants(prs, data, theme: Theme):
                 chip_x,
                 chip_y,
                 1.72,
-                0.48,
+                0.60,
                 WHITE,
                 kind=MSO_SHAPE.ROUNDED_RECTANGLE,
                 line=LINE,
@@ -509,19 +561,20 @@ def render_quadrants(prs, data, theme: Theme):
             tf.word_wrap = True
             tf.vertical_anchor = MSO_ANCHOR.MIDDLE
             tf.margin_left = tf.margin_right = Inches(0.06)
+            tf.margin_top = tf.margin_bottom = Inches(0.04)
             p = tf.paragraphs[0]
             p.alignment = PP_ALIGN.CENTER
             run = p.add_run()
             run.text = name
-            run.font.name = "Calibri"
-            run.font.size = Pt(9)
+            run.font.name = FONT
+            run.font.size = Pt(_fit_size(name, 10, 1.60, 0.50))
             run.font.bold = True
-            run.font.color.rgb = TEXT
+            run.font.color.rgb = MUTED if name.startswith("[") else TEXT
         if not quadrant.names:
             _text(
                 slide,
                 x + 0.42,
-                chip_top + 0.55,
+                chip_top + 0.4,
                 5.18,
                 1.15,
                 "[Add verified competitor names or examples]",

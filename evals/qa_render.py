@@ -2,14 +2,15 @@ import argparse
 import json
 import shutil
 import subprocess
+import tempfile
 from pathlib import Path
 
-import fitz  # PyMuPDF
+import pymupdf
 
 from app.core.deck_schema import Deck
 from app.render.builder import build_deck
 
-OUT = Path(__file__).parent / "outputs"
+OUT = Path("outputs/qa")
 
 WINDOWS_PATHS = (
     r"C:\Program Files\LibreOffice\program\soffice.exe",
@@ -29,26 +30,28 @@ def find_soffice() -> str:
 
 
 def pptx_to_pdf(pptx_path: Path) -> Path:
-    subprocess.run(
-        [
-            find_soffice(),
-            "--headless",
-            "--convert-to",
-            "pdf",
-            "--outdir",
-            str(pptx_path.parent),
-            str(pptx_path),
-        ],
-        check=True,
-        timeout=180,
-    )
+    with tempfile.TemporaryDirectory(prefix="slidegen-lo-") as profile:
+        subprocess.run(
+            [
+                find_soffice(),
+                f"-env:UserInstallation={Path(profile).as_uri()}",
+                "--headless",
+                "--convert-to",
+                "pdf",
+                "--outdir",
+                str(pptx_path.parent.resolve()),
+                str(pptx_path.resolve()),
+            ],
+            check=True,
+            timeout=180,
+        )
     return pptx_path.with_suffix(".pdf")
 
 
 def pdf_to_pngs(pdf_path: Path, out_dir: Path, dpi: int = 110) -> list[Path]:
     out_dir.mkdir(parents=True, exist_ok=True)
     paths = []
-    with fitz.open(pdf_path) as doc:
+    with pymupdf.open(pdf_path) as doc:
         for i, page in enumerate(doc, 1):
             p = out_dir / f"slide-{i:02d}.png"
             page.get_pixmap(dpi=dpi).save(str(p))
@@ -56,17 +59,23 @@ def pdf_to_pngs(pdf_path: Path, out_dir: Path, dpi: int = 110) -> list[Path]:
     return paths
 
 
-def render_deck_file(deck_json: Path) -> list[Path]:
-    deck = Deck.model_validate(json.loads(deck_json.read_text(encoding="utf-8")))
-    OUT.mkdir(parents=True, exist_ok=True)
-    pptx = build_deck(deck, OUT / f"{deck_json.stem}.pptx")
+def render_deck_file(deck_json: Path, out_dir: Path = OUT) -> list[Path]:
+    out_dir.mkdir(parents=True, exist_ok=True)
+    pptx = out_dir / f"{deck_json.stem}.pptx"
+    if deck_json.suffix.lower() == ".pptx":
+        if deck_json.resolve() != pptx.resolve():
+            shutil.copy2(deck_json, pptx)
+    else:
+        deck = Deck.model_validate(json.loads(deck_json.read_text(encoding="utf-8")))
+        build_deck(deck, pptx)
     pdf = pptx_to_pdf(pptx)
-    return pdf_to_pngs(pdf, OUT / deck_json.stem)
+    return pdf_to_pngs(pdf, out_dir / deck_json.stem)
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("deck_json", type=Path)
+    ap.add_argument("--output-dir", type=Path, default=OUT)
     args = ap.parse_args()
-    for p in render_deck_file(args.deck_json):
+    for p in render_deck_file(args.deck_json, args.output_dir):
         print(p)
