@@ -4,6 +4,8 @@ SlideGen turns a natural-language prompt into a structured presentation, reviews
 
 **Live demo:** [slidegen-edz9.onrender.com](https://slidegen-edz9.onrender.com/)
 
+Implementation status (2026-10-22): `main` is pushed through **`d21d769`**, including the Blush source-name and visible-content fix in **`b5ba759`**. Latest recorded checks: **260 offline tests passed**, Ruff lint/format (61 files), and `git diff --check`. The supplied Blush deck and a corrected five-slide fake-pipeline preview were inspected with LibreOffice/PyMuPDF. The active Render revision, `/healthz`, a fresh live Blush result, and real PowerPoint remain unchecked.
+
 ## Current project scope
 
 - Generate a deck from a prompt with the Groq provider.
@@ -151,6 +153,19 @@ Live Render service: <https://slidegen-edz9.onrender.com/>.
 4. Apply the Blueprint and wait for `/healthz` to pass.
 5. Open the service URL, submit a test prompt, and download the resulting PowerPoint.
 
+For the current fixes, confirm Render's active deployment includes `d21d769` (which includes `b5ba759`), then open `/healthz` and expect HTTP 200. Check the actual service environment against `render.yaml`; these values are already supplied by the Blueprint:
+
+```dotenv
+SLIDEGEN_LLM_PROVIDER=groq
+SLIDEGEN_STRUCTURED_ATTEMPTS=2
+SLIDEGEN_DATA_DIR=/var/data
+SLIDEGEN_MAX_JOBS=1
+```
+
+Keep the required `GROQ_API_KEY` private, confirm a persistent disk is mounted at `/var/data`, and use one instance. Stage model variables are optional because the app has defaults; the Blueprint sets them explicitly. These configuration instructions do not establish the current deployed settings.
+
+After confirming available Groq quota, retry the full Blush launch/growth prompt and check for a completed job, successful download, visible launch/growth content, and a counts-only stage token summary. The shorter Blush-style prompt in `scripts/live_smoke.py` does not include the launch/growth plan, so run the full regression prompt separately. Inspect the downloaded file in real PowerPoint; startup and HTTP 202 alone do not establish generation success.
+
 The Blueprint uses a paid Render web plan because Render persistent disks are available only to paid web services. The disk is required for the SQLite job store and downloads to survive restarts. Free web services spin down after 15 minutes without inbound traffic and take about a minute to start again; they also have ephemeral storage, so they are unsuitable for this disk-backed setup. See Render's [persistent disk documentation](https://render.com/docs/disks) and [free service limits](https://render.com/docs/free).
 
 ### Environment variables
@@ -226,7 +241,7 @@ The four reference-specific layouts are `ask_allocation`, `market_snapshot`, `fl
 
 ## Tests
 
-Implementation includes reference-layout QA, quota/token accounting, sparse-prompt safeguards, review-reference correction (`82f2dfd`), provider parse-recovery correction (`874674e`), and the Blush source-name/visible-fact correction described above. The Render revision and live generation after the latest fixes have not been checked. Owner-supplied deployment logs show startup and accepted jobs, followed by review and analysis failures; startup alone does not establish generation success.
+Implementation checkpoint `d21d769` includes reference-layout QA, quota/token accounting, sparse-prompt safeguards, review-reference correction (`82f2dfd`), provider parse recovery (`874674e`), Blush source-name/visible-content correction (`b5ba759`), and Blush typography/QA (`d21d769`). The Render revision and live generation after the latest fixes have not been checked. Owner-supplied deployment logs show startup and accepted jobs, followed by review and analysis failures; startup alone does not establish generation success.
 
 Install development dependencies with `python -m pip install -r requirements-dev.txt`, then run the suite from the project root:
 
@@ -274,6 +289,8 @@ python -m evals.qa_render data/outputs/acme-pay-final.pptx
 ```
 
 The `.pptx`, `.pdf`, and PNG outputs are written under `outputs/qa/` (override with `--output-dir`). LibreOffice uses an isolated temporary profile. It may substitute fonts or interpret charts differently from Microsoft PowerPoint.
+
+The corrected local Blush preview is `outputs/qa/blush-correction/blush-launch-offline.pptx`; its five PNGs are under `outputs/qa/blush-correction/blush-launch-offline/`. It was produced with fake stage responses through the real pipeline and renderer. Its five-slide sequence is fixture data, not a fixed production template or a live-provider result. These generated files remain ignored and are not included in Git.
 
 `tests/test_reference_geometry.py` checks slide bounds and nonempty text-region overlaps (including table cells) for minimum, typical, and maximum fixture content. These checks require neither an LLM nor LibreOffice; they do not prove glyph fit or reference similarity. Reference layouts share a Calibri theme, fitted text, muted placeholders, a table height cap, and workflow spacing for the actual 3-8 supplied steps. Workflows are no longer padded to eight stages. Dense eight-step descriptions can shrink to 7 pt, and highly concentrated allocations still have crowded leader tracks. Check those cases in real PowerPoint; the geometry checks do not prove visual acceptance.
 
