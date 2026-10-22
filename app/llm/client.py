@@ -50,7 +50,24 @@ class LLMClient:
                 raise
             if getattr(exc, "status_code", None) == 429:
                 raise ProviderLimitError() from None
-            raise LLMProviderError(f"provider request failed: {exc}") from exc
+            status = getattr(exc, "status_code", None)
+            status = status if type(status) is int and 100 <= status <= 599 else None
+            body = getattr(exc, "body", None)
+            error = body.get("error", body) if isinstance(body, Mapping) else None
+            code = error.get("code") if isinstance(error, Mapping) else None
+            # Keep only known machine-readable codes. SDK messages/bodies can
+            # contain failed_generation, reasoning, prompts, or credentials.
+            if not isinstance(code, str) or code not in {
+                "json_validate_failed",
+                "output_parse_failed",
+            }:
+                code = None
+            detail = "provider request failed"
+            if status is not None:
+                detail += f" (HTTP {status})"
+            if code is not None:
+                detail += f": {code}"
+            raise LLMProviderError(detail, status_code=status, code=code) from None
         if not isinstance(content, str) or not content.strip():
-            raise LLMProviderError("provider returned an empty response")
+            raise LLMProviderError("provider returned an empty response", code="empty_response")
         return content.strip()

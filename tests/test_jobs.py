@@ -76,6 +76,96 @@ def test_job_failure_stores_clean_user_message(tmp_path):
         runner.close()
 
 
+def test_exhausted_parse_failure_logs_only_sanitized_provider_error(tmp_path, caplog):
+    from app.llm.client import LLMClient
+    from app.llm.structured import StructuredGenerator
+    from app.pipeline.models import AnalysisOutput
+
+    calls = []
+
+    class ParseFailure(Exception):
+        status_code = 400
+        body = {"error": {"code": "output_parse_failed", "failed_generation": "PRIVATE_REASONING"}}
+
+    class Provider:
+        def complete(self, *args, **kwargs):
+            calls.append(1)
+            raise ParseFailure("PRIVATE_REASONING PRIVATE_CREDENTIAL")
+
+    generator = StructuredGenerator(LLMClient(Provider()))
+
+    def generate(prompt):
+        return generator.generate(
+            AnalysisOutput,
+            stage="analyze",
+            model="openai/gpt-oss-20b",
+            system_prompt="Return JSON",
+            user_prompt=prompt,
+        )
+
+    store = JobStore(tmp_path)
+    with JobRunner(store, generate=generate) as runner:
+        job = runner.submit("Make a presentation")
+    failed = store.get(job.id)
+    assert failed.status == "failed"
+    assert failed.error == USER_ERROR
+    assert calls == [1, 1]
+    assert "output_parse_failed" in caplog.text
+    assert "PRIVATE_REASONING" not in caplog.text
+    assert "PRIVATE_CREDENTIAL" not in caplog.text
+    assert "failed_generation" not in caplog.text
+
+
+def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
+    from app.config import Settings
+    from app.llm.client import LLMClient
+    from app.llm.structured import StructuredGenerator
+    from app.pipeline.orchestrator import generate_deck
+    from test_llm_structured import parse_error
+    from test_pipeline_orchestrator import FakePipelineGenerator
+
+    from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
+    from app.pipeline.models import AnalysisOutput, OutlineOutput, ReviewOutput
+
+    stage_responses = FakePipelineGenerator()
+    output_models = {
+        model.__name__: model
+        for model in (
+            AnalysisOutput,
+            OutlineOutput,
+            TitleSlide,
+            BulletsSlide,
+            ClosingSlide,
+            ReviewOutput,
+        )
+    }
+    calls = []
+
+    class Provider:
+        def complete(self, messages, **kwargs):
+            schema = json.loads(messages[0]["content"].split("JSON Schema:\n")[1])
+            calls.append(kwargs["response_format"])
+            if len(calls) == 1:
+                raise parse_error()
+            return stage_responses.generate(output_models[schema["title"]]).model_dump_json()
+
+    generator = StructuredGenerator(LLMClient(Provider()))
+    settings = Settings("groq", None, "openai/gpt-oss-20b", None, None, None, None, 2)
+    store = JobStore(tmp_path)
+    with JobRunner(
+        store, generate=lambda prompt: generate_deck(prompt, settings=settings, generator=generator)
+    ) as runner:
+        job = runner.submit("Make a 3-slide launch deck. Launch is June 1.")
+
+    completed = store.get(job.id)
+    assert completed.status == "done"
+    assert completed.error is None
+    assert Path(completed.output_path).is_file()
+    assert len(calls) == 7
+    assert calls[1]["type"] == "json_schema"
+    assert all(call["type"] == "json_object" for call in [calls[0], *calls[2:]])
+
+
 def test_job_timeout_fails_with_clean_user_message(tmp_path):
     store = JobStore(tmp_path)
     started = threading.Event()

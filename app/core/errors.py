@@ -8,6 +8,11 @@ class SlideGenError(Exception):
 class LLMProviderError(SlideGenError):
     """An LLM provider could not return a completion."""
 
+    def __init__(self, message: str, *, status_code: int | None = None, code: str | None = None):
+        self.status_code = status_code
+        self.code = code
+        super().__init__(message)
+
 
 class ProviderLimitError(LLMProviderError):
     """A quota/rate limit that must not trigger generation retries."""

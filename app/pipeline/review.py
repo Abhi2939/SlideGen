@@ -421,8 +421,8 @@ def review_deck(
         "missing_fact_ids must use valid required fact IDs. An empty fact-ID list means no fact IDs "
         "may be reported missing. Do not infer additional slides or renumber slides."
     )
-    # These are prompt constraints for Groq JSON mode; semantic validation
-    # below still rejects any invalid references returned by the model.
+    # First attempts use prompt constraints; bounded recovery may also send
+    # the native schema to Groq. Semantic validation remains authoritative.
     response_schema = ReviewOutput.model_json_schema()
     slide_ids = {"type": "integer", "enum": list(range(len(slides)))}
     response_schema["properties"]["regenerate_slide_indices"]["items"] = slide_ids

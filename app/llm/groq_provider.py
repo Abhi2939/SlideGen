@@ -7,6 +7,7 @@ import httpx
 from groq import Groq
 
 from app.llm.usage import record_usage
+from app.llm.schema import GPT_OSS_MODELS
 
 
 class GroqProvider:
@@ -42,6 +43,12 @@ class GroqProvider:
         }
         if response_format is not None:
             request["response_format"] = dict(response_format)
+            if model in GPT_OSS_MODELS:
+                request["include_reasoning"] = False
+                if response_format.get("type") == "json_schema":
+                    # Recovery must leave room for final JSON within the same
+                    # completion budget. Normal first attempts keep defaults.
+                    request["reasoning_effort"] = "low"
         if max_tokens is not None:
             request["max_completion_tokens"] = max_tokens
         result = self._client.chat.completions.create(**request)

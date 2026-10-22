@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
 from app.llm.client import LLMClient
+from app.llm.schema import recovery_format
 from app.llm.usage import TokenUsage, usage_scope
 
 
@@ -25,14 +26,7 @@ def _decode_json(content: str) -> Any:
 
 def _is_provider_json_validation_error(exc: LLMProviderError) -> bool:
     """Return True only when the provider rejected its own generated JSON."""
-    cause = exc.__cause__
-    if getattr(cause, "status_code", None) != 400:
-        return False
-    body = getattr(cause, "body", None)
-    if not isinstance(body, Mapping):
-        return False
-    error = body.get("error")
-    return isinstance(error, Mapping) and error.get("code") == "json_validate_failed"
+    return exc.status_code == 400 and exc.code in {"json_validate_failed", "output_parse_failed"}
 
 
 class StructuredGenerator:
@@ -74,6 +68,7 @@ class StructuredGenerator:
             {"role": "user", "content": user_prompt},
         ]
         last_detail = "no response"
+        request_format = {"type": "json_object"}
 
         for attempt in range(1, self.max_attempts + 1):
             if self._limited.is_set():
@@ -84,7 +79,7 @@ class StructuredGenerator:
                         messages,
                         model=model,
                         temperature=temperature,
-                        response_format={"type": "json_object"},
+                        response_format=request_format,
                         max_tokens=max_tokens,
                     )
             except ProviderLimitError:
@@ -99,9 +94,10 @@ class StructuredGenerator:
                 # only that specific response-format failure. In particular,
                 # do not repeat 429/quota errors: another request would spend
                 # more of the exhausted provider budget without helping.
-                if exc.__cause__ is not None:
-                    if not _is_provider_json_validation_error(exc) or attempt == self.max_attempts:
+                if _is_provider_json_validation_error(exc):
+                    if attempt == self.max_attempts:
                         raise StructuredOutputError(stage, attempt, last_detail) from exc
+                    request_format = recovery_format(model, output_model.__name__, schema)
                     messages = [
                         *messages,
                         {
@@ -109,11 +105,14 @@ class StructuredGenerator:
                             "content": (
                                 "The provider could not produce valid JSON. Retry the same task "
                                 "and return exactly one syntactically valid JSON object that "
-                                "matches the required schema. Do not use markdown or trailing commas."
+                                "matches the required schema. Return the final JSON only, with no "
+                                "analysis, reasoning, markdown, or trailing commas."
                             ),
                         },
                     ]
                     continue
+                if exc.code != "empty_response":
+                    raise StructuredOutputError(stage, attempt, last_detail) from exc
                 if attempt == self.max_attempts:
                     break
                 messages = [
@@ -123,12 +122,19 @@ class StructuredGenerator:
                         "content": "The provider returned an empty response. Retry the same task and return only valid JSON.",
                     },
                 ]
+                request_format = recovery_format(model, output_model.__name__, schema)
                 continue
 
             try:
                 return output_model.model_validate(_decode_json(raw))
             except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
-                last_detail = str(exc)
+                # Corrections go back to the provider, but stored exception
+                # details must never echo generated text or validator input.
+                last_detail = (
+                    "response was not valid JSON"
+                    if isinstance(exc, json.JSONDecodeError)
+                    else "response did not match the required schema"
+                )
                 if attempt == self.max_attempts:
                     break
                 messages = [
@@ -138,9 +144,10 @@ class StructuredGenerator:
                         "role": "user",
                         "content": (
                             "The previous JSON did not validate. Correct the response for the same task. "
-                            "Validation error: " + last_detail
+                            "Validation error: " + str(exc)
                         ),
                     },
                 ]
+                request_format = recovery_format(model, output_model.__name__, schema)
 
         raise StructuredOutputError(stage, self.max_attempts, last_detail)
