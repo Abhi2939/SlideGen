@@ -206,3 +206,40 @@ def unsupported_investor_claim_categories(text: str, source_text: str) -> list[s
         for category, pattern in _UNSUPPORTED_INVESTOR_PATTERNS.items()
         if pattern.search(text) and not pattern.search(source_text)
     ]
+
+
+_SPECIFIC_PATTERNS = {
+    "pricing": re.compile(
+        r"\b(?:freemium|subscription pricing|per[- ]seat|pricing tiers?|plans start at)\b", re.I
+    ),
+    "traction": re.compile(
+        r"\b(?:paying customers|enterprise customers|strong adoption|customer traction|profitable|monthly revenue)\b",
+        re.I,
+    ),
+    "team credentials": re.compile(
+        r"\b(?:ex[- ]\w+|award[- ]winning|experienced founders?|serial entrepreneurs?|PhD|previously (?:led|worked)|former \w+)\b",
+        re.I,
+    ),
+    "funding terms": re.compile(
+        r"\b(?:pre[- ]money|post[- ]money|valuation|equity stake|convertible note|SAFE agreement)\b",
+        re.I,
+    ),
+    "named competitors": re.compile(
+        r"\b(?:competes? with|competitors? (?:include|are)|rivals? (?:include|are))\s+[^.;\n]+",
+        re.I,
+    ),
+}
+
+
+def unsupported_specific_claim_categories(text: str, source_text: str) -> list[str]:
+    """Specific commercial evidence needs the original request in any deck type.
+
+    Placeholder instructions are scaffolding, not evidence. Check individual
+    matches so one supplied pricing/traction phrase does not license another.
+    """
+    source = source_text.casefold()
+    return [
+        category
+        for category, pattern in _SPECIFIC_PATTERNS.items()
+        if any(match.group().casefold() not in source for match in pattern.finditer(text))
+    ]

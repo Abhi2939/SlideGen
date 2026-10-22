@@ -60,14 +60,16 @@ def test_analyze_prompt_calls_structured_generator_with_analysis_contract():
     expected = _analysis()
     generator = FakeGenerator([expected])
 
-    result = analyze_prompt("  Make a product launch deck.  ", generator, "small-model")
+    result = analyze_prompt(
+        "  Make a 3-slide product launch deck. Launch is June 1.  ", generator, "small-model"
+    )
 
     assert result is expected
     output_model, kwargs = generator.calls[0]
     assert output_model is AnalysisOutput
     assert kwargs["stage"] == "analyze"
     assert kwargs["model"] == "small-model"
-    assert "Make a product launch deck." in kwargs["user_prompt"]
+    assert "Make a 3-slide product launch deck." in kwargs["user_prompt"]
     assert "Never infer an investor pitch" in kwargs["system_prompt"]
     assert "Treat labels such as 'Startup name'" in kwargs["system_prompt"]
     assert "Separate factual source material from" in kwargs["system_prompt"]
@@ -84,8 +86,7 @@ def test_analyze_prompt_preserves_explicit_funding_amount_as_verbatim_fact():
     )
 
     assert [(fact.id, fact.text, fact.verbatim) for fact in result.required_facts] == [
-        (0, "Launch is June 1", True),
-        (1, "Rs. 14 Cr", True),
+        (0, "Rs. 14 Cr", True),
     ]
 
 

@@ -30,6 +30,10 @@ def short_beauty_brief(prompt: str) -> ShortBeautyBrief | None:
         return None
 
     raw_brand = brand_match.group(1).strip(" \t:-")
+    if re.match(
+        r"(?:makes?|offers?|sells?|creates?|provides?|builds?|develops?)\b", raw_brand, re.I
+    ):
+        return None
     if not raw_brand:
         return None
     brand = raw_brand if any(char.isupper() for char in raw_brand) else raw_brand.title()

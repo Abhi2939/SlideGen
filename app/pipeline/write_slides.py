@@ -30,6 +30,7 @@ from app.llm.structured import StructuredGenerator
 from app.pipeline.grounding import (
     unsupported_claim_categories,
     unsupported_investor_claim_categories,
+    unsupported_specific_claim_categories,
 )
 from app.pipeline.models import AnalysisOutput, OutlineOutput, RequiredFact, validate_outline_facts
 
@@ -748,6 +749,11 @@ def _write_one(
                     "generated slide added unsupported details in these categories: "
                     f"{', '.join(unsupported_claims)}"
                 )
+            unsupported_specifics = unsupported_specific_claim_categories(text_content, prompt)
+            if unsupported_specifics:
+                raise ValueError(
+                    "generated slide added unsupported details: " + ", ".join(unsupported_specifics)
+                )
             unsupported_investor_claims = unsupported_investor_claim_categories(
                 text_content, prompt
             )
@@ -808,6 +814,17 @@ def _write_one(
                 "\n\nCORRECTION REQUIRED: The previous slide failed a contract check: "
                 f"{exc}. Regenerate the complete slide and satisfy the plan exactly."
             )
+
+    if last_error is not None and any(
+        marker in str(last_error)
+        for marker in (
+            "unsupported details",
+            "numeric details",
+            "numeric data",
+            "names not supplied",
+        )
+    ):
+        return _placeholder_slide(plan, assigned_facts)
 
     if (
         last_error is not None

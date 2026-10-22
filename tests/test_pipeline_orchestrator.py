@@ -86,7 +86,7 @@ def test_orchestrator_runs_all_stages_and_returns_validated_deck():
     stages = []
 
     deck = generate_deck(
-        "Make a launch presentation",
+        "Make a 3-slide launch presentation. Launch is June 1",
         settings=_settings(),
         generator=generator,
         theme="default",
@@ -127,7 +127,7 @@ def test_orchestrator_rejects_a_deck_that_fails_final_review():
 
     with pytest.raises(DeckReviewError) as exc_info:
         generate_deck(
-            "Make a launch presentation",
+            "Make a 3-slide launch presentation. Launch is June 1",
             settings=_settings(),
             generator=generator,
             max_repair_rounds=0,
@@ -141,7 +141,7 @@ def test_orchestrator_validates_limits_before_calling_generator():
     generator = FakePipelineGenerator()
     with pytest.raises(ValueError, match="max_workers"):
         generate_deck(
-            "Make a launch presentation",
+            "Make a 3-slide launch presentation. Launch is June 1",
             settings=_settings(),
             generator=generator,
             max_workers=0,
@@ -160,7 +160,7 @@ def test_orchestrator_checks_job_deadline_before_starting_generation():
     generator = FakePipelineGenerator()
     with pytest.raises(TimeoutError, match="exceeded its time limit"):
         generate_deck(
-            "Make a launch presentation",
+            "Make a 3-slide launch presentation. Launch is June 1",
             settings=_settings(),
             generator=generator,
             deadline=time.monotonic() - 1,

@@ -1,13 +1,22 @@
 """Turn the user's prompt into a validated deck brief."""
 
 import re
+from decimal import Decimal
 
 from app.pipeline.briefs import short_beauty_brief
+from app.pipeline.grounding import unsupported_specific_claim_categories
 from app.pipeline.models import AnalysisOutput, RequiredFact
 from app.llm.structured import StructuredGenerator
 
 
 MAX_PROMPT_CHARS = 12_000
+DEFAULT_SLIDE_COUNT = 4
+
+
+def _source_numbers(text):
+    return {Decimal(value.replace(",", "")) for value in re.findall(r"\d[\d,]*(?:\.\d+)?", text)}
+
+
 _FUNDING_AMOUNT_PATTERN = re.compile(
     r"(?<![\w])(?:Rs\.?|INR|₹|USD|US\$|\$|EUR|€|GBP|£)\s*"
     r"\d[\d,]*(?:\.\d+)?(?:\s*(?:crores?|cr|lakhs?|lakh|million|billion|[kmb]))?",
@@ -37,8 +46,8 @@ product introduction for potential customers; leave the audience unspecified
 if that is safer than guessing. Treat labels such as 'Startup name' or 'Brand
 name' as metadata: extract and use the value as the brand name, and do not
 copy the label into presentation text. Choose a slide count from 3 to 30 that
-suits the request. For a concise branded product brief with no requested slide
-count, choose four slides and do not repeat facts just to fill pages. Return all user facts and product claims that must appear
+suits the request. For a concise brief with no requested slide
+count, choose at least four slides and do not repeat facts just to fill pages. Return all user facts and product claims that must appear
 in the deck as uniquely identified required_facts, using IDs starting at 0
 with no gaps. Do not turn a supplied product promise into a broader guarantee."""
 
@@ -69,6 +78,22 @@ def analyze_prompt(
         temperature=0.1,
         max_tokens=max_tokens,
     )
+    source_numbers = _source_numbers(clean_prompt)
+    safe_facts = [
+        fact
+        for fact in analysis.required_facts
+        if _source_numbers(fact.text) <= source_numbers
+        and not unsupported_specific_claim_categories(fact.text, clean_prompt)
+    ]
+    if safe_facts != analysis.required_facts:
+        analysis = analysis.model_copy(update={"required_facts": safe_facts})
+    # Four slides is the existing concise-brief default. Preserve explicit
+    # counts, including a requested three-slide presentation.
+    if (
+        not _EXPLICIT_SLIDE_COUNT_PATTERN.search(clean_prompt)
+        and analysis.slide_count < DEFAULT_SLIDE_COUNT
+    ):
+        analysis = analysis.model_copy(update={"slide_count": DEFAULT_SLIDE_COUNT})
     minimum_count = _minimum_reference_slide_count(clean_prompt)
     if minimum_count > analysis.slide_count and not _EXPLICIT_SLIDE_COUNT_PATTERN.search(
         clean_prompt
