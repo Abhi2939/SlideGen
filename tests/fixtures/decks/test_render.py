@@ -50,7 +50,7 @@ def test_rendered_chart_shows_values_and_unit(tmp_path):
     assert chart.plots[0].data_labels.show_value
 
 
-def test_blush_brand_theme_renders_editable_cosmetic_art(tmp_path):
+def test_blush_theme_has_readable_cover_without_unsupplied_product_art(tmp_path):
     deck = Deck.model_validate(
         {
             "title": "Blush",
@@ -76,7 +76,17 @@ def test_blush_brand_theme_renders_editable_cosmetic_art(tmp_path):
     assert len(presentation.slides) == 3
     for slide in (presentation.slides[0], presentation.slides[2]):
         texts = [shape.text for shape in slide.shapes if shape.has_text_frame]
-        assert {"FOUNDATION", "LIPSTICK", "SKINCARE"} <= set(texts)
+        assert not {"FOUNDATION", "LIPSTICK", "SKINCARE", "B"} & set(texts)
+        title = next(shape for shape in slide.shapes if shape.has_text_frame and shape.text)
+        assert title.width > presentation.slide_width * 0.7
+    for slide in presentation.slides:
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                assert all(
+                    run.font.name == "Calibri"
+                    for p in shape.text_frame.paragraphs
+                    for run in p.runs
+                )
 
 
 def test_reference_layout_fixture_renders_charts_tables_and_groups(tmp_path):

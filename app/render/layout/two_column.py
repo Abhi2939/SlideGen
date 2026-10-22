@@ -40,10 +40,12 @@ def render(prs, data, theme):
                 return False
         return True
 
-    size = fit.choose_size(BODY_SIZES, fits)
+    sizes = (22, 20, *BODY_SIZES) if theme.name == "blush" else BODY_SIZES
+    size = fit.choose_size(sizes, fits)
     for idx, column in enumerate(columns):
         x = MARGIN_X + idx * (card_w + gap)
-        add_rect(slide, x, BODY_TOP, card_w, card_h, theme.surface, MSO_SHAPE.ROUNDED_RECTANGLE)
+        if theme.name != "blush":
+            add_rect(slide, x, BODY_TOP, card_w, card_h, theme.surface, MSO_SHAPE.ROUNDED_RECTANGLE)
         pad = Inches(0.24)
         text_x = x + pad
         text_w = card_w - 2 * pad

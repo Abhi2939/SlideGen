@@ -34,7 +34,8 @@ def render(prs, data, theme):
     def fits(size):
         return sum(heights(size)) + GAP_M * (n - 1) <= BODY_H
 
-    size = fit.choose_size(BODY_SIZES, fits)
+    sizes = (28, 26, 24, *BODY_SIZES) if theme.name == "blush" and n <= 3 else BODY_SIZES
+    size = fit.choose_size(sizes, fits)
     hs = heights(size)
     if not fits(size):
         log.warning("bullets slide %r overflows even at %spt", data.title, size)

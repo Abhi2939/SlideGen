@@ -3,7 +3,6 @@ from pptx.util import Inches
 
 from app.render import fit
 from app.render.common import add_rect, add_text, new_slide
-from app.render.beauty import add_blush_product_art
 from app.render.theme import CONTENT_W, GAP_M, SLIDE_H, SLIDE_W
 
 TITLE_SIZES = (44, 40, 36, 32, 28)
@@ -13,8 +12,9 @@ SUBTITLE_SIZES = (22, 20, 18, 16)
 def render(prs, data, theme):
     slide = new_slide(prs, theme, bg=theme.primary)
     is_blush = theme.name == "blush"
-    w = int(CONTENT_W * (0.53 if is_blush else 0.86))
+    w = int(CONTENT_W * 0.86)
     x = Inches(0.9) if is_blush else (SLIDE_W - w) // 2
+    align = PP_ALIGN.LEFT if is_blush else PP_ALIGN.CENTER
     title_size = fit.choose_size(
         TITLE_SIZES,
         lambda size: fit.text_height(data.title, size, w) <= Inches(1.8),
@@ -43,7 +43,7 @@ def render(prs, data, theme):
         color=theme.on_primary,
         font=theme.font_heading,
         bold=True,
-        align=PP_ALIGN.CENTER,
+        align=align,
     )
     y = top + title_h
     if data.subtitle:
@@ -58,7 +58,7 @@ def render(prs, data, theme):
             size_pt=subtitle_size,
             color=theme.surface,
             font=theme.font_body,
-            align=PP_ALIGN.CENTER,
+            align=align,
         )
         y += subtitle_h
     if data.contact:
@@ -73,8 +73,6 @@ def render(prs, data, theme):
             size_pt=14,
             color=theme.accent,
             font=theme.font_body,
-            align=PP_ALIGN.CENTER,
+            align=align,
         )
-    if is_blush:
-        add_blush_product_art(slide, theme, Inches(8.45), Inches(1.55), 1.0)
     return slide

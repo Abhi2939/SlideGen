@@ -88,8 +88,6 @@ BLUSH = Theme(
         rgb("A9B1A3"),
         rgb("F1D9C4"),
     ),
-    font_heading="Georgia",
-    font_body="Aptos",
 )
 
 THEMES = {"default": DEFAULT, "blush": BLUSH}
