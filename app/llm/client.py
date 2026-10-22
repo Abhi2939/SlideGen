@@ -3,7 +3,7 @@
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
-from app.core.errors import LLMProviderError
+from app.core.errors import LLMProviderError, ProviderLimitError
 
 
 Message = Mapping[str, str]
@@ -46,6 +46,10 @@ class LLMClient:
                 max_tokens=max_tokens,
             )
         except Exception as exc:
+            if isinstance(exc, ProviderLimitError):
+                raise
+            if getattr(exc, "status_code", None) == 429:
+                raise ProviderLimitError() from None
             raise LLMProviderError(f"provider request failed: {exc}") from exc
         if not isinstance(content, str) or not content.strip():
             raise LLMProviderError("provider returned an empty response")

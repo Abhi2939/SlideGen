@@ -31,6 +31,9 @@ def generate_deck(
     semantic_attempts: int = 2,
     deadline: float | None = None,
     progress_callback: Callable[[str], None] | None = None,
+    usage_callback: Callable[[dict], None] | None = None,
+    review_callback: Callable[[dict], None] | None = None,
+    provider_limit_callback: Callable[[], None] | None = None,
 ) -> Deck:
     """Analyze, outline, write, review and validate one complete presentation."""
     clean_prompt = prompt.strip()
@@ -60,63 +63,75 @@ def generate_deck(
     if generator is None:
         client: LLMClient = create_llm_client(settings)
         generator = StructuredGenerator(client, max_attempts=settings.structured_attempts)
+    if provider_limit_callback is not None:
+        generator.on_provider_limit = provider_limit_callback
 
-    announce("Analyzing request")
-    analysis = analyze_prompt(
-        clean_prompt,
-        generator,
-        models["analyze"],
-    )
-    announce("Planning slide sequence")
-    outline = create_outline(
-        clean_prompt,
-        analysis,
-        generator,
-        models["outline"],
-        semantic_attempts=semantic_attempts,
-    )
-    announce("Writing slide content")
-    slides = write_slides(
-        clean_prompt,
-        analysis,
-        outline,
-        generator,
-        models["write"],
-        max_workers=max_workers,
-        semantic_attempts=semantic_attempts,
-    )
-    announce("Reviewing slide content")
-    reviewed = review_and_repair_deck(
-        clean_prompt,
-        analysis,
-        outline,
-        slides,
-        generator,
-        models["review"],
-        models["write"],
-        max_repair_rounds=max_repair_rounds,
-        max_workers=max_workers,
-        semantic_attempts=semantic_attempts,
-        progress_callback=progress_callback,
-    )
-    announce("Validating presentation")
-    if not reviewed.review.passed:
-        raise DeckReviewError(reviewed.review, reviewed.repair_rounds)
+    try:
+        announce("Analyzing request")
+        analysis = analyze_prompt(
+            clean_prompt,
+            generator,
+            models["analyze"],
+        )
+        announce("Planning slide sequence")
+        outline = create_outline(
+            clean_prompt,
+            analysis,
+            generator,
+            models["outline"],
+            semantic_attempts=semantic_attempts,
+        )
+        announce("Writing slide content")
+        slides = write_slides(
+            clean_prompt,
+            analysis,
+            outline,
+            generator,
+            models["write"],
+            max_workers=max_workers,
+            semantic_attempts=semantic_attempts,
+        )
+        announce("Reviewing slide content")
+        reviewed = review_and_repair_deck(
+            clean_prompt,
+            analysis,
+            outline,
+            slides,
+            generator,
+            models["review"],
+            models["write"],
+            max_repair_rounds=max_repair_rounds,
+            max_workers=max_workers,
+            semantic_attempts=semantic_attempts,
+            progress_callback=progress_callback,
+            review_callback=review_callback,
+        )
+        announce("Validating presentation")
+        if not reviewed.review.passed:
+            raise DeckReviewError(reviewed.review, reviewed.repair_rounds)
 
-    deck = Deck.model_validate(
-        {
-            "title": analysis.deck_title,
-            "subtitle": outline.subtitle,
-            "audience": analysis.audience,
-            "tone": analysis.tone,
-            "theme": theme,
-            "slides": [slide.model_dump(mode="json") for slide in reviewed.slides],
-        }
-    )
-    log.info(
-        "generated deck %r with %d slides after %d repair round(s)",
-        deck.title,
-        len(deck.slides),
-        reviewed.repair_rounds,
-    )
-    return deck
+        deck = Deck.model_validate(
+            {
+                "title": analysis.deck_title,
+                "subtitle": outline.subtitle,
+                "audience": analysis.audience,
+                "tone": analysis.tone,
+                "theme": theme,
+                "slides": [slide.model_dump(mode="json") for slide in reviewed.slides],
+            }
+        )
+        log.info(
+            "generated deck %r with %d slides after %d repair round(s)",
+            deck.title,
+            len(deck.slides),
+            reviewed.repair_rounds,
+        )
+        return deck
+    finally:
+        usage = getattr(generator, "usage", None)
+        if usage is not None:
+            counts = usage.snapshot()
+            if usage_callback is not None:
+                usage_callback(counts)
+            else:
+                log.info("pipeline token usage: %s", counts)

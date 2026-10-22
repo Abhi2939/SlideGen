@@ -1,13 +1,15 @@
 """Validated structured-output requests with bounded stage-local retries."""
 
 import json
+from threading import Event
 from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from pydantic import BaseModel, ValidationError
 
-from app.core.errors import LLMProviderError, StructuredOutputError
+from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
 from app.llm.client import LLMClient
+from app.llm.usage import TokenUsage, usage_scope
 
 
 T = TypeVar("T", bound=BaseModel)
@@ -39,6 +41,9 @@ class StructuredGenerator:
             raise ValueError("max_attempts must be at least 1")
         self.client = client
         self.max_attempts = max_attempts
+        self.usage = TokenUsage()
+        self.on_provider_limit = None
+        self._limited = Event()
 
     def generate(
         self,
@@ -66,14 +71,22 @@ class StructuredGenerator:
         last_detail = "no response"
 
         for attempt in range(1, self.max_attempts + 1):
+            if self._limited.is_set():
+                raise ProviderLimitError()
             try:
-                raw = self.client.complete(
-                    messages,
-                    model=model,
-                    temperature=temperature,
-                    response_format={"type": "json_object"},
-                    max_tokens=max_tokens,
-                )
+                with usage_scope(self.usage, stage):
+                    raw = self.client.complete(
+                        messages,
+                        model=model,
+                        temperature=temperature,
+                        response_format={"type": "json_object"},
+                        max_tokens=max_tokens,
+                    )
+            except ProviderLimitError:
+                self._limited.set()
+                if self.on_provider_limit is not None:
+                    self.on_provider_limit()
+                raise
             except LLMProviderError as exc:
                 last_detail = str(exc)
                 # Groq can reject a completion when its JSON-mode generation

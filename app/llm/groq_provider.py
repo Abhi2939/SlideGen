@@ -6,6 +6,8 @@ from typing import Any
 import httpx
 from groq import Groq
 
+from app.llm.usage import record_usage
+
 
 class GroqProvider:
     def __init__(
@@ -19,6 +21,7 @@ class GroqProvider:
             raise ValueError("Set GROQ_API_KEY (or SLIDEGEN_API_KEY) to use Groq")
         self._client = Groq(
             api_key=api_key,
+            max_retries=0,
             timeout=timeout,
             http_client=httpx.Client(trust_env=use_system_proxy),
         )
@@ -42,5 +45,6 @@ class GroqProvider:
         if max_tokens is not None:
             request["max_completion_tokens"] = max_tokens
         result = self._client.chat.completions.create(**request)
+        record_usage(getattr(result, "usage", None))
         content = result.choices[0].message.content
         return content or ""

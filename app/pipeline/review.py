@@ -462,6 +462,7 @@ def review_and_repair_deck(
     max_tokens: int | None = 3000,
     semantic_attempts: int = 2,
     progress_callback: Callable[[str], None] | None = None,
+    review_callback: Callable[[dict], None] | None = None,
 ) -> ReviewRun:
     """Review, rewrite flagged slides only, and re-review up to the round limit."""
     if max_repair_rounds < 0:
@@ -487,6 +488,8 @@ def review_and_repair_deck(
             max_tokens=max_tokens,
             semantic_attempts=semantic_attempts,
         )
+        if review_callback is not None:
+            review_callback(review.model_dump(mode="json"))
         if review.passed:
             return ReviewRun(current_slides, review, repair_rounds)
 

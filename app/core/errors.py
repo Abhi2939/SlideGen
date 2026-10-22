@@ -9,6 +9,15 @@ class LLMProviderError(SlideGenError):
     """An LLM provider could not return a completion."""
 
 
+class ProviderLimitError(LLMProviderError):
+    """A quota/rate limit that must not trigger generation retries."""
+
+    def __init__(self):
+        super().__init__(
+            "The AI provider's daily or rate limit was reached. Please try again later."
+        )
+
+
 class StructuredOutputError(SlideGenError):
     """A model response remained invalid after the configured retries."""
 

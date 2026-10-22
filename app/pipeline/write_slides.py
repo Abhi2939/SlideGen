@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+from threading import Event
 import re
 from decimal import Decimal
 from typing import Any, Mapping
@@ -24,7 +25,7 @@ from app.core.deck_schema import (
     FlowStepsSlide,
     QuadrantsSlide,
 )
-from app.core.errors import SlideWriteError
+from app.core.errors import SlideWriteError, ProviderLimitError
 from app.llm.structured import StructuredGenerator
 from app.pipeline.grounding import (
     unsupported_claim_categories,
@@ -613,6 +614,8 @@ def _write_one(
     max_tokens: int | None,
     semantic_attempts: int,
     repair_instruction: str | None = None,
+    accounting_stage: str = "write",
+    limit_event: Event | None = None,
 ) -> Slide:
     plan = outline.slides[slide_index]
     output_model = SLIDE_MODELS[plan.layout]
@@ -649,9 +652,11 @@ def _write_one(
     last_error: ValueError | None = None
 
     for _ in range(semantic_attempts):
+        if limit_event is not None and limit_event.is_set():
+            raise ProviderLimitError()
         slide = generator.generate(
             output_model,
-            stage="write",
+            stage=accounting_stage,
             model=model,
             system_prompt=WRITE_SYSTEM_PROMPT,
             user_prompt=request + correction,
@@ -935,6 +940,7 @@ def rewrite_slides(
         max_tokens=max_tokens,
         semantic_attempts=semantic_attempts,
         repair_instructions=repair_instructions,
+        accounting_stage="repair",
     )
     result = list(current_slides)
     for index, slide in written.items():
@@ -954,12 +960,24 @@ def _write_indices(
     max_tokens: int | None,
     semantic_attempts: int,
     repair_instructions: Mapping[int, str] | None = None,
+    accounting_stage: str = "write",
 ) -> dict[int, Slide]:
     results: dict[int, Slide] = {}
+    limited = Event()
+
+    def write_unless_limited(*args, **kwargs):
+        if limited.is_set():
+            raise ProviderLimitError()
+        try:
+            return _write_one(*args, **kwargs)
+        except ProviderLimitError:
+            limited.set()
+            raise
+
     with ThreadPoolExecutor(max_workers=min(max_workers, len(slide_indices))) as executor:
         futures = {
             executor.submit(
-                _write_one,
+                write_unless_limited,
                 prompt,
                 analysis,
                 outline,
@@ -969,6 +987,8 @@ def _write_indices(
                 max_tokens=max_tokens,
                 semantic_attempts=semantic_attempts,
                 repair_instruction=(repair_instructions or {}).get(index),
+                accounting_stage=accounting_stage,
+                limit_event=limited,
             ): index
             for index in slide_indices
         }
@@ -979,6 +999,8 @@ def _write_indices(
             except Exception as exc:
                 for pending in futures:
                     pending.cancel()
+                if isinstance(exc, ProviderLimitError):
+                    raise
                 plan = outline.slides[index]
                 raise SlideWriteError(index, plan.title, str(exc)) from exc
     return results

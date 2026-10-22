@@ -11,8 +11,9 @@ from threading import Timer
 from typing import Callable
 
 from app.core.deck_schema import Deck
-from app.core.errors import DeckReviewError
+from app.core.errors import DeckReviewError, ProviderLimitError
 from app.jobs.store import Job, JobStore
+from app.llm.usage import TokenUsage
 from app.pipeline.orchestrator import generate_deck
 from app.render.builder import build_deck
 
@@ -82,6 +83,7 @@ class JobRunner:
 
         timeout_timer = Timer(self.max_runtime_seconds, time_out_job)
         timeout_timer.daemon = True
+        token_counts = TokenUsage().snapshot()
         try:
             self.store.mark_running(job_id)
             timeout_timer.start()
@@ -90,6 +92,10 @@ class JobRunner:
                     job.prompt,
                     deadline=deadline,
                     progress_callback=report_stage,
+                    usage_callback=token_counts.update,
+                    provider_limit_callback=lambda: self.store.fail_if_running(
+                        job_id, str(ProviderLimitError())
+                    ),
                 )
             else:
                 report_stage("Generating presentation")
@@ -107,7 +113,10 @@ class JobRunner:
                 output_path.unlink(missing_ok=True)
             except OSError:
                 log.exception("could not remove partial output for job %s", job_id)
-            log.exception("job %s failed during deck generation", job_id)
+            if isinstance(exc, ProviderLimitError):
+                log.warning("job %s stopped: provider quota/rate limit", job_id)
+            else:
+                log.exception("job %s failed during deck generation", job_id)
             if isinstance(exc, DeckReviewError):
                 log.error(
                     "job %s final review findings: %s",
@@ -115,11 +124,14 @@ class JobRunner:
                     exc.review.model_dump_json(),
                 )
             try:
-                self.store.mark_failed(job_id, USER_ERROR)
+                self.store.mark_failed(
+                    job_id, str(exc) if isinstance(exc, ProviderLimitError) else USER_ERROR
+                )
             except Exception:
                 log.exception("could not persist failed state for job %s", job_id)
         finally:
             timeout_timer.cancel()
+            log.info("job %s token usage (reported calls only): %s", job_id, token_counts)
 
     def close(self, *, wait: bool = True) -> None:
         self._executor.shutdown(wait=wait, cancel_futures=False)

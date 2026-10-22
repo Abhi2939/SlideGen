@@ -18,6 +18,7 @@ def test_groq_provider_ignores_environment_proxies_by_default(monkeypatch):
     provider = groq_provider.GroqProvider("test-key")
 
     assert provider._client.kwargs["http_client"].kwargs == {"trust_env": False}
+    assert provider._client.kwargs["max_retries"] == 0
 
 
 def test_groq_provider_can_use_environment_proxy_when_requested(monkeypatch):
