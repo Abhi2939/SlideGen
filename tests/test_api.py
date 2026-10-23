@@ -71,6 +71,28 @@ def test_root_serves_presentation_studio_page(tmp_path):
 
 
 @pytest.mark.parametrize(
+    "revision", [None, "A" * 40, "b" * 64, "PRIVATE_VALUE", "a" * 40 + "\r\nInjected: yes"]
+)
+def test_health_reports_only_valid_render_commit_without_changing_body(
+    tmp_path, monkeypatch, revision
+):
+    if revision is None:
+        monkeypatch.delenv("RENDER_GIT_COMMIT", raising=False)
+    else:
+        monkeypatch.setenv("RENDER_GIT_COMMIT", revision)
+    app, _, _ = make_app(tmp_path)
+    with TestClient(app) as client:
+        response = client.get("/healthz")
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert response.headers["Cache-Control"] == "no-store"
+    expected = revision.lower() if revision in {"A" * 40, "b" * 64} else None
+    assert response.headers.get("X-SlideGen-Revision") == expected
+    assert "PRIVATE_VALUE" not in response.text
+    assert "Injected" not in str(response.headers)
+
+
+@pytest.mark.parametrize(
     "prompt",
     ["tiny", "    ", "x" * 4001],
 )

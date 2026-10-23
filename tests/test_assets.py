@@ -79,6 +79,11 @@ def test_full_fake_pipeline_embeds_images_and_sources_without_render_network(
     assert "Fixture Photographer" in prs.slides[0].notes_slide.notes_text_frame.text
     assert "Pexels" in prs.slides[0].notes_slide.notes_text_frame.text
     assert any("Pexels" in shape.text for shape in prs.slides[0].shapes if shape.has_text_frame)
+    credit = next(shape for shape in prs.slides[0].shapes if shape.name == "Photo source credit")
+    assert credit.click_action.hyperlink.address == "https://www.pexels.com/photo/test-123/"
+    run = credit.text_frame.paragraphs[0].runs[0]
+    assert str(run.font.color.rgb) == "FFFFFF"
+    assert run.hyperlink.address is None
     assert all(request.url.host == "93.184.216.34" for request in fake_http)
     assert list((tmp_path / "cache/manifests").glob("*.json"))
 

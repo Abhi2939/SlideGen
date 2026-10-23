@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ipaddress
+import os
 from pathlib import Path
+import re
 import threading
 import time
 
-from fastapi import APIRouter, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, Response, status
 from fastapi.responses import FileResponse
 
 from app.api.model import CreateJobRequest, CreateJobResponse, JobStatusResponse
@@ -60,7 +62,11 @@ def _client_address(request: Request) -> str:
 
 
 @router.get("/healthz")
-def healthz() -> dict[str, bool]:
+def healthz(response: Response) -> dict[str, bool]:
+    response.headers["Cache-Control"] = "no-store"
+    revision = os.getenv("RENDER_GIT_COMMIT", "")
+    if re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision, re.I):
+        response.headers["X-SlideGen-Revision"] = revision.lower()
     return {"ok": True}
 
 

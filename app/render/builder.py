@@ -90,7 +90,11 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
                 else theme.muted,
                 font=theme.font_body,
             )
-            box.text_frame.paragraphs[0].runs[0].hyperlink.address = photos[0].source_url
+            # A text-run hyperlink inherits Office's blue link styling, which
+            # becomes unreadable on navy covers. Link the editable text shape
+            # instead so the theme's explicit credit color stays intact.
+            box.name = "Photo source credit"
+            box.click_action.hyperlink.address = photos[0].source_url
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
