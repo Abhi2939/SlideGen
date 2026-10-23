@@ -12,7 +12,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
 from app.llm.client import LLMClient
 from app.llm.limits import safe_label
-from app.llm.schema import recovery_format
+from app.llm.schema import GPT_OSS_MODELS, recovery_format
 from app.llm.usage import TokenUsage, usage_scope
 
 
@@ -123,12 +123,18 @@ class StructuredGenerator:
             {"role": "user", "content": user_prompt},
         ]
         last_detail = "no response"
-        request_format = {"type": "json_object"}
+        request_format = recovery_format(model, output_model.__name__, schema)
 
         for attempt in range(1, self.max_attempts + 1):
             if self._limited.is_set():
                 raise ProviderLimitError()
             try:
+                options = {}
+                if model in GPT_OSS_MODELS:
+                    # Strict decoding starts on the first call. Preserve the
+                    # previous normal reasoning default; only correction calls
+                    # use the existing low-effort recovery policy.
+                    options["reasoning_effort"] = "medium" if attempt == 1 else "low"
                 with usage_scope(self.usage, stage):
                     raw = self._complete(
                         stage=stage,
@@ -137,6 +143,7 @@ class StructuredGenerator:
                         temperature=temperature,
                         response_format=request_format,
                         max_tokens=max_tokens,
+                        **options,
                     )
             except ProviderLimitError as exc:
                 self._limited.set()

@@ -155,13 +155,40 @@ def test_provider_parse_error_recovers_without_reusing_failed_generation(code, n
 
     assert result.title == "Ready"
     assert len(provider.calls) == 2
-    assert provider.calls[0][1]["response_format"] == {"type": "json_object"}
+    assert provider.calls[0][1]["response_format"]["type"] == "json_schema"
+    assert provider.calls[0][1]["reasoning_effort"] == "medium"
     recovery = provider.calls[1][1]
     assert recovery["response_format"]["type"] == "json_schema"
     assert recovery["response_format"]["json_schema"]["strict"] is True
+    assert recovery["reasoning_effort"] == "low"
     assert recovery["max_tokens"] == 1800
     assert "PRIVATE_COMPLETION" not in json.dumps(provider.calls)
     assert "PRIVATE_CREDENTIAL" not in json.dumps(provider.calls)
+
+
+@pytest.mark.parametrize("model", ["openai/gpt-oss-20b", "openai/gpt-oss-120b"])
+def test_supported_model_uses_strict_schema_before_first_attempt_without_lowering_normal_effort(
+    model,
+):
+    provider = FakeProvider(['{"title":7}', '{"title":"Ready"}'])
+    result = StructuredGenerator(LLMClient(provider)).generate(
+        Result,
+        stage="write",
+        model=model,
+        system_prompt="Write a title",
+        user_prompt="A title",
+        max_tokens=1600,
+    )
+    assert result.title == "Ready"
+    first, correction = [kwargs for _, kwargs in provider.calls]
+    assert first["response_format"]["type"] == "json_schema"
+    schema = first["response_format"]["json_schema"]["schema"]
+    assert schema["required"] == ["title"]
+    assert schema["additionalProperties"] is False
+    assert first["reasoning_effort"] == "medium"
+    assert correction["reasoning_effort"] == "low"
+    assert first["max_tokens"] == correction["max_tokens"] == 1600
+    assert "additionalProperties" not in Result.model_json_schema()
 
 
 def test_provider_parse_error_exhausts_configured_attempts_with_sanitized_traceback():

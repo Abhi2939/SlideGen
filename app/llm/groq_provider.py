@@ -35,6 +35,7 @@ class GroqProvider:
         temperature: float = 0.2,
         response_format: Mapping[str, Any] | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         request: dict[str, Any] = {
             "messages": [dict(message) for message in messages],
@@ -49,6 +50,10 @@ class GroqProvider:
                     # Recovery must leave room for final JSON within the same
                     # completion budget. Normal first attempts keep defaults.
                     request["reasoning_effort"] = "low"
+        if reasoning_effort is not None:
+            if model not in GPT_OSS_MODELS or reasoning_effort not in {"low", "medium", "high"}:
+                raise ValueError("unsupported reasoning effort for the configured model")
+            request["reasoning_effort"] = reasoning_effort
         if max_tokens is not None:
             request["max_completion_tokens"] = max_tokens
         result = self._client.chat.completions.create(**request)

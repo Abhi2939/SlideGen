@@ -186,6 +186,88 @@ def test_title_slide_includes_assigned_verbatim_fact_in_subtitle():
     assert result[0].subtitle == "Launch is June 1"
 
 
+@pytest.mark.parametrize("layout", ["flow_steps", "process"])
+def test_workflow_restores_source_phrases_visibly_without_extra_steps(tmp_path, layout):
+    from app.core.deck_schema import Deck
+    from app.render.builder import build_deck
+    from pptx import Presentation
+
+    facts = ["signs up", "verifies KYC", "gets funded"]
+    analysis = AnalysisOutput(
+        deck_title="Acme Pay",
+        deck_type="product",
+        slide_count=3,
+        required_facts=[{"id": i, "text": text, "verbatim": True} for i, text in enumerate(facts)],
+    )
+    outline = OutlineOutput(
+        deck_title="Acme Pay",
+        slides=[
+            {"index": 0, "layout": "title", "title": "Acme Pay", "purpose": "Introduce"},
+            {
+                "index": 1,
+                "layout": layout,
+                "title": "How it works",
+                "purpose": "Show supplied steps",
+                "required_fact_ids": [0, 1, 2],
+            },
+            {"index": 2, "layout": "closing", "title": "Summary", "purpose": "Summarize"},
+        ],
+    )
+
+    class Writer:
+        calls = 0
+
+        def generate(self, output_model, **kwargs):
+            self.calls += 1
+            if output_model is TitleSlide:
+                return TitleSlide(layout="title", title="Acme Pay")
+            if output_model is ClosingSlide:
+                return ClosingSlide(layout="closing", title="Summary")
+            field = "detail" if layout == "flow_steps" else "description"
+            return output_model.model_validate(
+                {
+                    "layout": layout,
+                    "title": "How it works",
+                    "subtitle": "Conceptual workflow",
+                    "steps": [
+                        {"title": title, field: "Confirm the supplied information"}
+                        for title in ("Sign up", "KYC verification", "Funding")
+                    ],
+                }
+            )
+
+    writer = Writer()
+    slides = write_slides(
+        "Acme Pay fintech for SMEs: signs up, verifies KYC, gets funded.",
+        analysis,
+        outline,
+        writer,
+        "fake",
+    )
+    assert writer.calls == 3
+    assert len(slides[1].steps) == 3
+    assert slides[1].subtitle.startswith("Conceptual workflow")
+    presentation = Presentation(
+        build_deck(Deck(title="Acme Pay", slides=slides), tmp_path / f"{layout}.pptx", strict=True)
+    )
+    visible = "\n".join(
+        shape.text for shape in presentation.slides[1].shapes if shape.has_text_frame
+    )
+    assert all(text in visible for text in facts)
+
+
+def test_workflow_source_restoration_never_overwrites_or_truncates_existing_copy():
+    slide = FlowStepsSlide(
+        layout="flow_steps",
+        title="How it works",
+        subtitle="s" * 100,
+        tagline="t" * 100,
+        steps=[{"title": title} for title in ("Start", "Review", "Confirm")],
+    )
+    fact = RequiredFact(id=0, text="Required source phrase", verbatim=True)
+    assert _restore_verbatim_facts(slide, [fact]) is slide
+
+
 def test_write_slides_retries_when_verbatim_fact_is_repeated_on_wrong_slide():
     analysis, outline = _inputs()
     analysis = analysis.model_copy(

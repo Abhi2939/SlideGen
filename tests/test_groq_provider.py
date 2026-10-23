@@ -76,7 +76,10 @@ def test_structured_completion_excludes_reasoning_only_for_supported_models(monk
     assert "reasoning_effort" not in requests[0]
 
 
-def test_native_schema_recovery_uses_low_reasoning_with_unchanged_budget(monkeypatch):
+@pytest.mark.parametrize("effort, expected", [(None, "low"), ("medium", "medium")])
+def test_native_schema_preserves_explicit_normal_effort_and_recovery_budget(
+    monkeypatch, effort, expected
+):
     requests = []
 
     def create(**kwargs):
@@ -112,8 +115,9 @@ def test_native_schema_recovery_uses_low_reasoning_with_unchanged_budget(monkeyp
             },
         },
         max_tokens=1800,
+        reasoning_effort=effort,
     )
 
-    assert requests[0]["reasoning_effort"] == "low"
+    assert requests[0]["reasoning_effort"] == expected
     assert requests[0]["include_reasoning"] is False
     assert requests[0]["max_completion_tokens"] == 1800

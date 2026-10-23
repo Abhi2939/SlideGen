@@ -19,6 +19,7 @@ class ChatProvider(Protocol):
         temperature: float = 0.2,
         response_format: Mapping[str, Any] | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         """Return the assistant's text content for a chat request."""
 
@@ -37,14 +38,17 @@ class LLMClient:
         temperature: float = 0.2,
         response_format: Mapping[str, Any] | None = None,
         max_tokens: int | None = None,
+        reasoning_effort: str | None = None,
     ) -> str:
         try:
+            options = {"reasoning_effort": reasoning_effort} if reasoning_effort is not None else {}
             content = self.provider.complete(
                 messages,
                 model=model,
                 temperature=temperature,
                 response_format=response_format,
                 max_tokens=max_tokens,
+                **options,
             )
         except Exception as exc:
             if isinstance(exc, ProviderLimitError):

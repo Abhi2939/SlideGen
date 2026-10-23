@@ -619,6 +619,24 @@ def _numeric_data_issue(
 def _restore_verbatim_facts(slide: Slide, missing_facts: list[RequiredFact]) -> Slide:
     """Place omitted short verbatim facts into visible slide copy when possible."""
     facts = [fact.text for fact in missing_facts]
+    if isinstance(slide, (FlowStepsSlide, ProcessSlide)):
+        # Preserve the writer's steps and conceptual label. A visible source
+        # summary avoids guessing which generated step an exact phrase belongs
+        # to, or incorrectly treating speaker notes as source coverage.
+        fields = [("subtitle", 100 if isinstance(slide, FlowStepsSlide) else 140)]
+        if isinstance(slide, FlowStepsSlide):
+            fields.append(("tagline", 100))
+        updates = {}
+        for fact in facts:
+            for field, limit in fields:
+                current = updates.get(field, getattr(slide, field))
+                combined = " ".join(part for part in (current, fact) if part)
+                if len(combined) <= limit:
+                    updates[field] = combined
+                    break
+            else:
+                return slide
+        return slide.model_copy(update=updates)
     if isinstance(slide, (TitleSlide, SectionSlide, ClosingSlide)):
         if all(len(text) <= 140 for text in facts):
             current = getattr(slide, "subtitle", None)
