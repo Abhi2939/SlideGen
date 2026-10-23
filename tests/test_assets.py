@@ -106,6 +106,56 @@ def test_missing_photo_key_does_not_make_http_request(tmp_path, fake_http):
     assert fake_http == []
 
 
+def test_curated_photos_use_only_fixed_topic_sources_and_cache_without_api_key(tmp_path, fake_http):
+    resolver = AssetResolver(AssetSettings(cache_dir=tmp_path))
+    photo = resolver._resolve("photo", "cosmetics makeup", 0)
+    assert photo["photographer"] == "DS stories"
+    assert photo["source_url"].endswith("white-surface-7256097/")
+    assert len(fake_http) == 1
+    assert fake_http[0].headers["host"] == "images.pexels.com"
+    assert "authorization" not in fake_http[0].headers
+    assert resolver._resolve("photo", "cosmetics makeup", 0) == photo
+    assert len(fake_http) == 1
+    assert resolver._resolve("photo", "private@example.com", 0) is None
+
+
+def test_curated_photos_can_be_disabled_and_do_not_replace_configured_api_results(
+    tmp_path, fake_http
+):
+    disabled = AssetResolver(AssetSettings(cache_dir=tmp_path, curated_photos=False))
+    assert disabled._resolve("photo", "cosmetics makeup", 0) is None
+    assert fake_http == []
+    api = AssetResolver(AssetSettings(cache_dir=tmp_path, pexels_key="FAKE_KEY"))
+    assert api._resolve("photo", "cosmetics makeup", 0)["photographer"] == "Fixture Photographer"
+    assert fake_http[0].headers["host"] == "api.pexels.com"
+
+
+def test_full_curated_fake_pipeline_saves_images_credit_and_notes(tmp_path, monkeypatch, fake_http):
+    from test_blush_prompt import BlushGenerator, PROMPT
+    from app.config import Settings
+    from app.pipeline.orchestrator import generate_deck
+
+    resolver = AssetResolver(AssetSettings(cache_dir=tmp_path / "cache"))
+    monkeypatch.setattr("app.pipeline.orchestrator.prepare_assets", resolver.resolve)
+    deck = generate_deck(
+        PROMPT,
+        settings=Settings("groq", None, "fake", None, None, None, None, 2),
+        generator=BlushGenerator(),
+    )
+    assert any(asset.photographer == "DS stories" for asset in deck.assets)
+    assert not any(r.headers["host"] == "api.pexels.com" for r in fake_http)
+    monkeypatch.setattr(
+        "app.assets.resolve.download", lambda *a, **k: pytest.fail("Rendering fetched an image")
+    )
+    presentation = Presentation(build_deck(deck, tmp_path / "curated.pptx", strict=True))
+    assert any(shape.shape_type == 13 for shape in presentation.slides[0].shapes)
+    assert "DS stories" in presentation.slides[0].notes_slide.notes_text_frame.text
+    assert any(
+        shape.has_text_frame and "Illustrative stock photo" in shape.text
+        for shape in presentation.slides[0].shapes
+    )
+
+
 @pytest.mark.parametrize(
     "url",
     [

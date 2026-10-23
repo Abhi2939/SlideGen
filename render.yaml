@@ -14,6 +14,8 @@ services:
     envVars:
       - key: SLIDEGEN_ASSETS_ENABLED
         value: "true"
+      - key: SLIDEGEN_CURATED_PHOTOS_ENABLED
+        value: "true"
       - key: SLIDEGEN_ASSET_CACHE_DIR
         value: /var/data/assets
       - key: PEXELS_API_KEY

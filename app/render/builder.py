@@ -76,7 +76,9 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
             slide.notes_slide.notes_text_frame.text = "\n\n".join(notes)
         photos = [a for a in assets if a.role == "photo"]
         if photos:
-            credit = "Photos: " + "; ".join(f"{a.photographer} / Pexels" for a in photos)
+            credit = "Illustrative stock photo: " + "; ".join(
+                f"{a.photographer} / Pexels" for a in photos
+            )
             box = add_text(
                 slide,
                 Inches(0.55),

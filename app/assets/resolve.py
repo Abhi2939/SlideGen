@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from app.assets.fetch import download, image_png
 from app.assets.models import DeckAsset
+from app.assets.photos import curated_photo
 
 
 @dataclass(frozen=True)
@@ -22,6 +23,7 @@ class AssetSettings:
     pexels_key: str | None = None
     budget_seconds: float = 20
     cache_max_bytes: int = 128 * 1024 * 1024
+    curated_photos: bool = True
 
     @classmethod
     def from_env(cls):
@@ -32,6 +34,8 @@ class AssetSettings:
                 or Path(os.getenv("SLIDEGEN_DATA_DIR", "data")) / "assets"
             ),
             pexels_key=os.getenv("PEXELS_API_KEY") or None,
+            curated_photos=os.getenv("SLIDEGEN_CURATED_PHOTOS_ENABLED", "true").lower()
+            in {"1", "true", "yes"},
         )
 
 
@@ -88,7 +92,11 @@ class AssetResolver:
 
     def _resolve(self, role, query, variant):
         settings = self.settings
+        if role == "photo" and not settings.pexels_key and not settings.curated_photos:
+            return None
         identity = f"v1:{role}:{query}:{variant}"
+        if role == "photo":
+            identity += ":api" if settings.pexels_key else ":curated-v1"
         digest = hashlib.sha256(identity.encode()).hexdigest()
         meta = settings.cache_dir / f"{digest}.json"
         image_path = settings.cache_dir / f"{digest}.png"
@@ -102,22 +110,23 @@ class AssetResolver:
             pass
         photographer = None
         if role == "photo":
-            if not settings.pexels_key:
+            if settings.pexels_key:
+                params = urlencode(
+                    {"query": query, "per_page": 1, "page": variant + 1, "orientation": "portrait"}
+                )
+                data, content_type = download(
+                    f"https://api.pexels.com/v1/search?{params}",
+                    headers={"Authorization": settings.pexels_key},
+                    max_bytes=256_000,
+                )
+                if content_type != "application/json":
+                    return None
+                photos = json.loads(data).get("photos", [])
+                photo = photos[0] if photos else None
+            else:
+                photo = curated_photo(query, variant)
+            if photo is None:
                 return None
-            params = urlencode(
-                {"query": query, "per_page": 1, "page": variant + 1, "orientation": "portrait"}
-            )
-            data, content_type = download(
-                f"https://api.pexels.com/v1/search?{params}",
-                headers={"Authorization": settings.pexels_key},
-                max_bytes=256_000,
-            )
-            if content_type != "application/json":
-                return None
-            photos = json.loads(data).get("photos", [])
-            if not photos:
-                return None
-            photo = photos[0]
             url = photo["src"]["large"]
             source = photo["url"]
             if urlsplit(source).scheme != "https" or urlsplit(source).hostname != "www.pexels.com":
