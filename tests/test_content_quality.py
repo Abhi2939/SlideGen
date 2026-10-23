@@ -37,6 +37,94 @@ def test_delivery_inflections_are_not_an_unsupported_claim_escape():
 @pytest.mark.parametrize(
     "claim",
     [
+        "Instant shade recommendation",
+        "Instant results",
+        "Priority access",
+        "Exclusive launch updates",
+    ],
+)
+def test_owner_deck_performance_and_access_promises_need_evidence(claim):
+    source = (
+        "Blush offers custom products. Launch plans include a quiz, waitlist and creator demos."
+    )
+    assert unsupported_claim_categories(claim, source, allow_structural_inference=True)
+    assert unsupported_claim_categories(claim, source + " " + claim) == []
+
+
+def test_generic_closing_actions_cannot_be_added_to_a_source_plan(tmp_path):
+    from app.core.deck_schema import ClosingSlide, Deck
+    from app.pipeline.write_slides import _write_one
+    from app.render.builder import build_deck
+    from pptx import Presentation
+
+    analysis = AnalysisOutput(
+        deck_title="Blush",
+        deck_type="product",
+        slide_count=3,
+        required_facts=[{"id": 0, "text": "Blush offers custom foundation"}],
+    )
+    outline = OutlineOutput(
+        deck_title="Blush",
+        slides=[
+            {"index": 0, "layout": "title", "title": "Blush", "purpose": "Introduce"},
+            {"index": 1, "layout": "bullets", "title": "Products", "purpose": "Describe"},
+            {
+                "index": 2,
+                "layout": "closing",
+                "title": "Summary",
+                "purpose": "Conclude",
+                "required_fact_ids": [0],
+            },
+        ],
+    )
+
+    class Writer:
+        calls = 0
+
+        def generate(self, output_model, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return ClosingSlide(
+                    layout="closing", title="Summary", subtitle="Explore your personalized shade"
+                )
+            assert "closing action not supplied" in kwargs["user_prompt"]
+            return ClosingSlide(
+                layout="closing", title="Summary", subtitle="Blush offers custom foundation"
+            )
+
+    writer = Writer()
+    closing = _write_one(
+        "Blush is a beauty brand. Blush offers custom foundation.",
+        analysis,
+        outline,
+        2,
+        writer,
+        "fake",
+        semantic_attempts=2,
+        max_tokens=1600,
+    )
+    assert writer.calls == 2
+    deck = Deck(
+        title="Blush",
+        slides=[
+            {"layout": "title", "title": "Blush"},
+            {
+                "layout": "bullets",
+                "title": "Products",
+                "bullets": [{"text": "Custom products"}, {"text": "Beauty"}],
+            },
+            closing,
+        ],
+    )
+    presentation = Presentation(build_deck(deck, tmp_path / "closing.pptx", strict=True))
+    assert "Explore your" not in "\n".join(
+        s.text for s in presentation.slides[2].shapes if s.has_text_frame
+    )
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
         "Automated risk scoring",
         "Instant fund disbursement",
         "User-friendly interface",

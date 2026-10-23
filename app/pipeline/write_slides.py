@@ -814,7 +814,7 @@ def _write_one(
                     action = _normalized_phrase(line)
                     if re.match(
                         r"^(?:join|follow|contact|book|schedule|sign up|subscribe|visit|"
-                        r"buy|shop|order|download|register|stay tuned|connect)\b",
+                        r"buy|shop|order|download|register|stay tuned|connect|explore|learn more)\b",
                         action,
                     ):
                         if action not in source_words:

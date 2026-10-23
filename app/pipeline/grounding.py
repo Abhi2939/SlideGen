@@ -21,7 +21,9 @@ UNSUPPORTED_CLAIM_PATTERNS = {
     ),
     "unsupported product benefit or guarantee": re.compile(
         r"\b(?:confidence in every purchase|boosts? confidence|unmatched quality|"
-        r"guarantee(?:s|d)?|risk[- ]free|save time|time savings|cost savings)\b",
+        r"guarantee(?:s|d)?|risk[- ]free|save time|time savings|cost savings|"
+        r"instant(?:ly)?(?:\s+\w+){0,2}\s+(?:recommendations?|results?|matching)|"
+        r"priority access|exclusive (?:launch )?updates)\b",
         re.IGNORECASE,
     ),
     "AI or algorithm claims": re.compile(
