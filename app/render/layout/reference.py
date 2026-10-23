@@ -238,19 +238,20 @@ def render_ask_allocation(prs, data, theme: Theme):
         top, bottom = 1.85, 6.15
         gap = (bottom - top) / max(1, slot_count - 1)
         ys = [cy] if slot_count == 1 else [top + index * gap for index in range(slot_count)]
-        for node, adjusted_y in zip(nodes, ys):
+        track_gap = min(0.055, 0.32 / max(1, slot_count - 1))
+        for track, (node, adjusted_y) in enumerate(zip(nodes, ys)):
             item, edge_x, edge_y, _, right = node
-            end_x = 8.66 if right else 5.84
+            end_x = 9.02 if right else 5.55
             elbow_x = cx + (size / 2 + 0.03) * (1 if right else -1)
             _line(slide, edge_x, edge_y, elbow_x, edge_y, color=MUTED, dashed=True)
             # Distinct nested tracks prevent concentrated slices sharing one
             # vertical leader line. Anchor order matches label order.
-            track_x = elbow_x + (0.012 * nodes.index(node)) * (1 if right else -1)
+            track_x = elbow_x + track_gap * track * (1 if right else -1)
             _line(slide, elbow_x, edge_y, track_x, edge_y, color=MUTED, dashed=True)
             _line(slide, track_x, edge_y, track_x, adjusted_y, color=MUTED, dashed=True)
             _line(slide, track_x, adjusted_y, end_x, adjusted_y, color=MUTED, dashed=True)
-            box_x = 8.72 if right else 3.78
-            width = 2.5 if right else 2.05
+            box_x = 9.08 if right else 3.78
+            width = 2.13 if right else 1.70
             _text(
                 slide,
                 box_x,
