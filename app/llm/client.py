@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from app.core.errors import LLMProviderError, ProviderLimitError
+from app.llm.limits import provider_limit_error
 
 
 Message = Mapping[str, str]
@@ -49,7 +50,7 @@ class LLMClient:
             if isinstance(exc, ProviderLimitError):
                 raise
             if getattr(exc, "status_code", None) == 429:
-                raise ProviderLimitError() from None
+                raise provider_limit_error(exc) from None
             status = getattr(exc, "status_code", None)
             status = status if type(status) is int and 100 <= status <= 599 else None
             body = getattr(exc, "body", None)

@@ -15,11 +15,13 @@ class LLMProviderError(SlideGenError):
 
 
 class ProviderLimitError(LLMProviderError):
-    """A quota/rate limit that must not trigger generation retries."""
+    """A sanitized provider limit, with metadata for bounded minute-limit recovery."""
 
-    def __init__(self):
+    def __init__(self, *, diagnostics: dict | None = None):
+        self.diagnostics = diagnostics or {}
         super().__init__(
-            "The AI provider's daily or rate limit was reached. Please try again later."
+            "The AI provider's daily or rate limit was reached. Please try again later.",
+            status_code=429,
         )
 
 

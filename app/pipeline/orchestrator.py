@@ -63,6 +63,23 @@ def generate_deck(
     if generator is None:
         client: LLMClient = create_llm_client(settings)
         generator = StructuredGenerator(client, max_attempts=settings.structured_attempts)
+
+    def report_provider_wait(stage: str, seconds: int) -> None:
+        stage_labels = {
+            "analyze": "Analyzing request",
+            "outline": "Planning slide sequence",
+            "write": "Writing slide content",
+            "review": "Reviewing slide content",
+            "repair": "Revising slide content",
+        }
+        announce(
+            f"Waiting {seconds}s for the AI provider's per-minute limit"
+            if seconds
+            else stage_labels.get(stage, "Generating presentation")
+        )
+
+    generator.deadline = deadline
+    generator.on_provider_wait = report_provider_wait
     if provider_limit_callback is not None:
         generator.on_provider_limit = provider_limit_callback
 

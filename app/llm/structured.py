@@ -1,6 +1,8 @@
 """Validated structured-output requests with bounded stage-local retries."""
 
 import json
+import logging
+import time
 from threading import Event
 from collections.abc import Mapping
 from typing import Any, TypeVar
@@ -9,11 +11,13 @@ from pydantic import BaseModel, ValidationError
 
 from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
 from app.llm.client import LLMClient
+from app.llm.limits import safe_label
 from app.llm.schema import recovery_format
 from app.llm.usage import TokenUsage, usage_scope
 
 
 T = TypeVar("T", bound=BaseModel)
+log = logging.getLogger(__name__)
 
 
 def _decode_json(content: str) -> Any:
@@ -30,14 +34,65 @@ def _is_provider_json_validation_error(exc: LLMProviderError) -> bool:
 
 
 class StructuredGenerator:
-    def __init__(self, client: LLMClient, *, max_attempts: int = 2):
+    def __init__(
+        self, client: LLMClient, *, max_attempts: int = 2, max_rate_limit_retries: int = 2
+    ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
         self.client = client
         self.max_attempts = max_attempts
+        if max_rate_limit_retries < 0:
+            raise ValueError("max_rate_limit_retries cannot be negative")
+        self.max_rate_limit_retries = max_rate_limit_retries
+        self.deadline = None
+        self.on_provider_wait = None
         self.usage = TokenUsage()
         self.on_provider_limit = None
         self._limited = Event()
+
+    def _complete(self, *, stage: str, **kwargs) -> str:
+        """Resume only a temporarily throttled call, within the job deadline."""
+        for retry in range(self.max_rate_limit_retries + 1):
+            if self.deadline is not None and time.monotonic() >= self.deadline:
+                raise TimeoutError("deck generation exceeded its time limit")
+            if self._limited.is_set():
+                raise ProviderLimitError()
+            try:
+                return self.client.complete(**kwargs)
+            except ProviderLimitError as exc:
+                details = exc.diagnostics
+                seconds = details.get("retry_after_seconds")
+                oversized = details.get("requested", 0) > details.get("limit", float("inf"))
+                temporary = (
+                    details.get("limit_type")
+                    in {
+                        "tokens_per_minute",
+                        "requests_per_minute",
+                        "input_tokens_per_minute",
+                        "output_tokens_per_minute",
+                    }
+                    and type(seconds) is int
+                    and 0 < seconds <= 60
+                    and not oversized
+                    and details.get("requests_per_day_remaining") != 0
+                )
+                if not temporary or retry == self.max_rate_limit_retries:
+                    raise
+                if self.deadline is not None and time.monotonic() + seconds >= self.deadline:
+                    raise TimeoutError("deck generation exceeded its time limit") from None
+                log.warning(
+                    "provider minute limit: stage=%s model=%s waiting_seconds=%s retry=%s details=%s",
+                    safe_label(stage),
+                    safe_label(kwargs["model"]),
+                    seconds,
+                    retry + 1,
+                    details,
+                )
+                if self.on_provider_wait is not None:
+                    self.on_provider_wait(stage, seconds)
+                time.sleep(seconds)
+                if self.on_provider_wait is not None:
+                    self.on_provider_wait(stage, 0)
 
     def generate(
         self,
@@ -75,15 +130,22 @@ class StructuredGenerator:
                 raise ProviderLimitError()
             try:
                 with usage_scope(self.usage, stage):
-                    raw = self.client.complete(
-                        messages,
+                    raw = self._complete(
+                        stage=stage,
+                        messages=messages,
                         model=model,
                         temperature=temperature,
                         response_format=request_format,
                         max_tokens=max_tokens,
                     )
-            except ProviderLimitError:
+            except ProviderLimitError as exc:
                 self._limited.set()
+                log.warning(
+                    "provider limit: stage=%s model=%s HTTP=429 details=%s",
+                    safe_label(stage),
+                    safe_label(model),
+                    exc.diagnostics,
+                )
                 if self.on_provider_limit is not None:
                     self.on_provider_limit()
                 raise
@@ -92,8 +154,8 @@ class StructuredGenerator:
                 # Groq can reject a completion when its JSON-mode generation
                 # is malformed, before returning any content to parse. Retry
                 # only that specific response-format failure. In particular,
-                # do not repeat 429/quota errors: another request would spend
-                # more of the exhausted provider budget without helping.
+                # do not use JSON corrections to repeat quota failures.
+                # Temporary minute limits have their own bounded wait above.
                 if _is_provider_json_validation_error(exc):
                     if attempt == self.max_attempts:
                         raise StructuredOutputError(stage, attempt, last_detail) from exc
