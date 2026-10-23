@@ -30,6 +30,26 @@ def test_one_supplied_cta_does_not_authorize_other_ctas():
     assert unsupported_claim_categories("Follow us on socials", "Visit our website")
 
 
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Skincare formulated for your specific skin needs",
+        "Build excitement with exclusive early access",
+    ],
+)
+def test_refined_live_blush_additions_need_their_own_source_evidence(claim):
+    assert unsupported_claim_categories(
+        claim, "Custom products matched to skin tone and style. Launch uses a waitlist."
+    )
+    assert unsupported_claim_categories(claim, claim) == []
+
+
+def test_one_product_specification_does_not_authorize_unrelated_capabilities():
+    assert unsupported_claim_categories(
+        "Skincare for specific skin needs", "User-friendly interface"
+    )
+
+
 def test_delivery_inflections_are_not_an_unsupported_claim_escape():
     assert unsupported_claim_categories("Delivering custom products", "Custom beauty products")
 
@@ -203,6 +223,29 @@ def test_sparse_educational_prompt_targets_six_substantive_slides():
         "fake",
     )
     assert analysis.slide_count == 6
+
+
+@pytest.mark.parametrize("count_requested", [False, True])
+def test_analyzer_cannot_turn_inferred_target_into_a_hard_review_constraint(count_requested):
+    prompt = "Blush is a beauty brand with launch and growth plans."
+    if count_requested:
+        prompt += " Make a 5-slide deck."
+    result = analyze_prompt(
+        prompt,
+        Generator(
+            {
+                "deck_title": "Blush",
+                "deck_type": "product",
+                "slide_count": 5,
+                "constraints": ["5 slides", "Slide count: five", "Use clear language"],
+            }
+        ),
+        "fake",
+    )
+    assert result.slide_count == 5
+    assert ("5 slides" in result.constraints) == count_requested
+    assert ("Slide count: five" in result.constraints) == count_requested
+    assert "Use clear language" in result.constraints
 
 
 def test_outline_can_use_fewer_fuller_slides_without_losing_facts():
@@ -489,3 +532,131 @@ def test_inferred_company_workflow_details_are_visibly_labelled():
     result = _label_inferred_workflow(slide, "Our brand plans a quiz, waitlist and demos")
     assert "Conceptual" in result.subtitle
     assert _label_inferred_workflow(slide, "An educational presentation") is slide
+
+
+def test_exhausted_workflow_json_can_complete_from_source_phrases_without_inventing_steps(tmp_path):
+    import json
+    from app.config import Settings
+    from app.core.errors import StructuredOutputError
+    from app.pipeline.orchestrator import generate_deck
+    from app.render.builder import build_deck
+    from pptx import Presentation
+
+    fact = "shade-matching quiz, waitlist, and creator-led demos"
+
+    class Stages:
+        def generate(self, output_model, **kwargs):
+            stage = kwargs["stage"]
+            if stage == "analyze":
+                return output_model(
+                    deck_title="Blush",
+                    deck_type="launch",
+                    slide_count=3,
+                    required_facts=[{"id": 0, "text": fact, "verbatim": True}],
+                )
+            if stage == "outline":
+                return output_model(
+                    deck_title="Blush",
+                    slides=[
+                        {"index": 0, "layout": "title", "title": "Blush", "purpose": "Introduce"},
+                        {
+                            "index": 1,
+                            "layout": "process",
+                            "title": "Launch Plan",
+                            "purpose": "Present supplied launch activities",
+                            "required_fact_ids": [0],
+                            "key_points": [
+                                "Shade-matching quiz",
+                                "Waitlist",
+                                "Creator-led demos",
+                                "Invented sales channel",
+                            ],
+                        },
+                        {
+                            "index": 2,
+                            "layout": "closing",
+                            "title": "Summary",
+                            "purpose": "Conclude",
+                        },
+                    ],
+                )
+            if stage == "write":
+                plan = json.loads(
+                    kwargs["user_prompt"].split("SLIDE PLAN:\n")[1].split("\n\nFACTS ASSIGNED")[0]
+                )
+                if plan["layout"] == "process":
+                    raise StructuredOutputError("write", 2, "response was not valid JSON")
+                return output_model(layout=plan["layout"], title=plan["title"])
+            if stage == "review":
+                outline = json.loads(
+                    kwargs["user_prompt"]
+                    .split("SLIDE OUTLINE:\n")[1]
+                    .split("\n\nGENERATED DECK")[0]
+                )
+                assert outline["slides"][1]["layout"] == "flow_steps"
+                return output_model(passed=True)
+            raise AssertionError(stage)
+
+    deck = generate_deck(
+        f"Make a 3-slide Blush launch deck. Our launch: {fact}.",
+        settings=Settings("groq", None, "fake", None, None, None, None, 2),
+        generator=Stages(),
+    )
+    assert deck.slides[1].layout == "flow_steps"
+    assert len(deck.slides[1].steps) == 3
+    assert "Invented" not in deck.model_dump_json()
+    presentation = Presentation(build_deck(deck, tmp_path / "source-workflow.pptx", strict=True))
+    visible = "\n".join(s.text for s in presentation.slides[1].shapes if s.has_text_frame)
+    assert fact in visible
+
+
+@pytest.mark.parametrize("kind", ["auth", "quota"])
+def test_source_workflow_never_masks_authentication_or_quota_failures(kind):
+    from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
+    from app.pipeline.models import OutlineSlidePlan
+    from app.pipeline.write_slides import _source_workflow, _write_one
+
+    fact = "Quiz, waitlist, demos"
+    plan = OutlineSlidePlan(
+        index=1,
+        layout="process",
+        title="Launch Plan",
+        purpose="Source launch",
+        required_fact_ids=[0],
+        key_points=["Quiz", "waitlist", "demos"],
+    )
+    analysis = AnalysisOutput(
+        deck_title="Blush",
+        deck_type="launch",
+        slide_count=3,
+        required_facts=[{"id": 0, "text": fact}],
+    )
+    outline = OutlineOutput(
+        deck_title="Blush",
+        slides=[
+            {"index": 0, "layout": "title", "title": "Blush", "purpose": "Introduce"},
+            plan,
+            {"index": 2, "layout": "closing", "title": "Summary", "purpose": "Conclude"},
+        ],
+    )
+    assert _source_workflow(plan, analysis.required_facts) is not None
+
+    class Failure:
+        def generate(self, *args, **kwargs):
+            if kind == "quota":
+                raise ProviderLimitError()
+            raise StructuredOutputError(
+                "write", 1, "provider request failed"
+            ) from LLMProviderError("provider request failed", status_code=401)
+
+    with pytest.raises(ProviderLimitError if kind == "quota" else StructuredOutputError):
+        _write_one(
+            "Our launch: " + fact,
+            analysis,
+            outline,
+            1,
+            Failure(),
+            "fake",
+            semantic_attempts=2,
+            max_tokens=1600,
+        )

@@ -465,7 +465,8 @@ def test_investor_slide_with_unsupported_claims_falls_back_to_placeholders():
         for bullet in slides[1].bullets
     )
     assert not any("Integrates" in bullet.text for bullet in slides[1].bullets)
-    assert any("Replace this placeholder" in bullet.text for bullet in slides[1].bullets)
+    assert len(slides[1].bullets) == 2
+    assert any("Add a verified company detail" in bullet.text for bullet in slides[1].bullets)
 
 
 @pytest.mark.parametrize(
@@ -527,6 +528,25 @@ def test_missing_allocation_ask_is_restored_from_assigned_fact():
 
     assert isinstance(result, AskAllocationSlide)
     assert result.ask == "Rs. 14 Cr"
+
+
+def test_source_complete_bullet_fallback_does_not_pad_with_missing_detail_instructions():
+    from app.pipeline.models import OutlineSlidePlan
+
+    plan = OutlineSlidePlan(
+        index=1,
+        title="Our Products",
+        layout="bullets",
+        purpose="Describe products",
+        required_fact_ids=[0, 1],
+    )
+    facts = [
+        RequiredFact(id=0, text="Foundation, lipstick and skincare"),
+        RequiredFact(id=1, text="Blended for your skin tone, undertone and style"),
+    ]
+    result = _placeholder_slide(plan, facts)
+    assert result.title == "Our Products"
+    assert [b.text for b in result.bullets] == [f.text for f in facts]
 
 
 def test_title_does_not_repeat_a_funding_amount():

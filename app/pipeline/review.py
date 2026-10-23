@@ -31,6 +31,9 @@ it is not an independent source of facts or requirements. Never ask a writer to
 add an outline point unless it is supported by the original request or required
 facts. Ignore unsupported aspirational outline points such as confidence or
 time-saving claims instead of requiring them in the slides.
+Only an explicit slide count in the original request is mandatory. Otherwise
+the analyzed count is a planning target and may shrink to avoid filler. Do not
+demand additional slides from an inferred count or redundant planning constraint.
 Apply three grounding tiers. Preserve Tier 1 user facts. Allow Tier 2 qualitative
 structure such as generic problem/solution framing, conceptual workflow steps,
 value-proposition headings, audience framing, competitor categories, and
@@ -430,8 +433,9 @@ def review_deck(
             plan = plan.model_copy(
                 update={
                     "title": slide.title,
+                    "layout": slide.layout,
                     "key_points": [fact.text for fact in facts],
-                    "purpose": "Explicit placeholders for source details not supplied; do not invent replacements.",
+                    "purpose": "Present supplied source details and use explicit placeholders only where input is missing; do not invent replacements.",
                 }
             )
         review_plans.append(plan)
@@ -455,8 +459,8 @@ def review_deck(
         "missing_fact_ids must use valid required fact IDs. An empty fact-ID list means no fact IDs "
         "may be reported missing. Do not infer additional slides or renumber slides."
     )
-    # First attempts use prompt constraints; bounded recovery may also send
-    # the native schema to Groq. Semantic validation remains authoritative.
+    # Supported models receive the narrowed native schema on every attempt.
+    # Semantic reference validation remains authoritative for all providers.
     response_schema = ReviewOutput.model_json_schema()
     slide_ids = {"type": "integer", "enum": list(range(len(slides)))}
     response_schema["properties"]["regenerate_slide_indices"]["items"] = slide_ids

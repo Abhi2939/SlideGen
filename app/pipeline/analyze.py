@@ -100,6 +100,19 @@ def analyze_prompt(
     ]
     if safe_facts != analysis.required_facts:
         analysis = analysis.model_copy(update={"required_facts": safe_facts})
+    if not _EXPLICIT_SLIDE_COUNT_PATTERN.search(clean_prompt):
+        # An inferred target must not become a fabricated user constraint in
+        # later review after the outline legitimately removes filler slides.
+        analysis = analysis.model_copy(
+            update={
+                "constraints": [
+                    constraint
+                    for constraint in analysis.constraints
+                    if not _EXPLICIT_SLIDE_COUNT_PATTERN.search(constraint)
+                    and not re.search(r"\bslide\s+count\b", constraint, re.I)
+                ]
+            }
+        )
     # Four slides is the existing concise-brief default. Preserve explicit
     # counts, including a requested three-slide presentation.
     if (

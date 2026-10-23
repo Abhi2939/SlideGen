@@ -25,7 +25,12 @@ from app.core.deck_schema import (
     FlowStepsSlide,
     QuadrantsSlide,
 )
-from app.core.errors import SlideWriteError, ProviderLimitError
+from app.core.errors import (
+    SlideWriteError,
+    ProviderLimitError,
+    StructuredOutputError,
+    LLMProviderError,
+)
 from app.llm.structured import StructuredGenerator
 from app.pipeline.grounding import (
     is_supported_paraphrase,
@@ -271,8 +276,46 @@ def _is_generic_business_fact(fact: RequiredFact) -> bool:
     return set(_normalized_phrase(fact.text).split()) <= _GENERIC_BUSINESS_TOKENS
 
 
+def _source_workflow(plan, facts: list[RequiredFact]) -> FlowStepsSlide | None:
+    """Use only short source phrases; never invent steps to recover a failed writer."""
+    if plan.layout not in {"bullets", "process", "flow_steps"} or not re.search(
+        r"\b(?:launch|workflow|steps?|process|roadmap|growth|timeline)\b|how it works",
+        f"{plan.title} {plan.purpose}",
+        re.I,
+    ):
+        return None
+    summary = " ".join(fact.text for fact in facts)
+    if not summary or len(summary) > 100:
+        return None
+    normalized_source = f" {_normalized_phrase(summary)} "
+    points = []
+    seen = set()
+    for point in plan.key_points:
+        normalized = _normalized_phrase(point)
+        if (
+            normalized
+            and normalized not in seen
+            and len(point) <= 50
+            and f" {normalized} " in normalized_source
+        ):
+            points.append({"title": point})
+            seen.add(normalized)
+    if not 3 <= len(points) <= 8:
+        return None
+    return FlowStepsSlide(
+        layout="flow_steps",
+        title=plan.title,
+        tagline="Conceptual workflow",
+        subtitle=summary,
+        steps=points,
+    )
+
+
 def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
     """Build an explicit, non-factual placeholder matching the planned layout."""
+    source_workflow = _source_workflow(plan, facts or [])
+    if source_workflow is not None:
+        return source_workflow
     fact_texts = [fact.text for fact in facts or []]
     fallback_titles = {
         "section": "Section details",
@@ -296,12 +339,15 @@ def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
         payload["subtitle"] = " ".join([*fact_texts, "Add verified details for this section."])
     elif plan.layout == "bullets":
         bullets = [{"text": text} for text in fact_texts if len(text) <= 160]
-        bullets.extend(
-            [
-                {"text": "Add a verified company detail from the source material."},
-                {"text": "Replace this placeholder with information you provide."},
-            ]
-        )
+        if 2 <= len(bullets) <= 6 and len(bullets) == len(fact_texts):
+            payload["title"] = plan.title
+        else:
+            bullets.extend(
+                [
+                    {"text": "Add a verified company detail from the source material."},
+                    {"text": "Replace this placeholder with information you provide."},
+                ][: max(0, 2 - len(bullets))]
+            )
         payload["bullets"] = bullets[:6]
     elif plan.layout == "two_column":
         payload["left"] = {
@@ -738,15 +784,30 @@ def _write_one(
     for _ in range(semantic_attempts):
         if limit_event is not None and limit_event.is_set():
             raise ProviderLimitError()
-        slide = generator.generate(
-            output_model,
-            stage=accounting_stage,
-            model=model,
-            system_prompt=WRITE_SYSTEM_PROMPT,
-            user_prompt=request + correction,
-            temperature=0.3,
-            max_tokens=max_tokens,
-        )
+        try:
+            slide = generator.generate(
+                output_model,
+                stage=accounting_stage,
+                model=model,
+                system_prompt=WRITE_SYSTEM_PROMPT,
+                user_prompt=request + correction,
+                temperature=0.3,
+                max_tokens=max_tokens,
+            )
+        except StructuredOutputError as exc:
+            cause = exc.__cause__
+            format_failure = exc.detail in {
+                "response was not valid JSON",
+                "response did not match the required schema",
+            } or (
+                isinstance(cause, LLMProviderError)
+                and cause.status_code == 400
+                and cause.code in {"json_validate_failed", "output_parse_failed"}
+            )
+            source_workflow = _source_workflow(plan, assigned_facts) if format_failure else None
+            if source_workflow is None:
+                raise
+            return source_workflow
         slide = _guard_illustrative_data(slide, prompt)
         slide = _label_inferred_workflow(slide, prompt)
         if (

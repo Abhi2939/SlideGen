@@ -8,7 +8,7 @@ UNSUPPORTED_CLAIM_PATTERNS = {
         r"\b(?:easy integration|affordable pricing|24/7 support|round[- ]the[- ]clock support|"
         r"join our beta|subscribe to updates|user[- ]friendly interface|"
         r"automated risk scoring|instant fund disbursement|instant funding|"
-        r"questionnaire|visual guide|undertone identification)\b",
+        r"questionnaire|visual guide|undertone identification|skin needs|skin concerns)\b",
         re.I,
     ),
     "unsupported calls to action": re.compile(
@@ -23,7 +23,7 @@ UNSUPPORTED_CLAIM_PATTERNS = {
         r"\b(?:confidence in every purchase|boosts? confidence|unmatched quality|"
         r"guarantee(?:s|d)?|risk[- ]free|save time|time savings|cost savings|"
         r"instant(?:ly)?(?:\s+\w+){0,2}\s+(?:recommendations?|results?|matching)|"
-        r"priority access|exclusive (?:launch )?updates)\b",
+        r"priority access|exclusive (?:launch )?updates|exclusive (?:early )?access)\b",
         re.IGNORECASE,
     ),
     "AI or algorithm claims": re.compile(
@@ -224,7 +224,11 @@ def unsupported_claim_categories(
         and (
             any(match.group().casefold() not in source for match in pattern.finditer(text))
             if category
-            in {"unsupported calls to action", "unsupported product benefit or guarantee"}
+            in {
+                "unsupported calls to action",
+                "unsupported product benefit or guarantee",
+                "unsupported product specifications",
+            }
             else not pattern.search(source)
         )
     ]
