@@ -40,9 +40,19 @@ class AssetSettings:
 
 
 def topic_query(title):
+    if title in {
+        "cosmetics makeup",
+        "financial technology",
+        "education learning",
+        "renewable energy",
+        "technology office",
+        "dogs",
+    }:
+        return title
     for pattern, query in (
         (r"blush|beauty|cosmetic|lipstick|skincare|makeup", "cosmetics makeup"),
         (r"dog|puppy|canine", "dogs"),
+        (r"edtech|education|learning|student|school", "education learning"),
         (r"fintech|payment|bank|finance|acme", "financial technology"),
         (r"solar|renewable|energy", "renewable energy"),
         (r"invoice|saas|software|technology", "technology office"),
@@ -74,7 +84,7 @@ def icon_name(text):
     ):
         if re.search(pattern, text, re.I):
             return name
-    return "circle"
+    return None
 
 
 def _write(path: Path, data: bytes):
@@ -124,7 +134,10 @@ class AssetResolver:
                 photos = json.loads(data).get("photos", [])
                 photo = photos[0] if photos else None
             else:
-                photo = curated_photo(query, variant)
+                from app.assets.photos import PHOTO_CATALOG
+
+                choices = PHOTO_CATALOG.get(query, ())
+                photo = curated_photo(query, variant % len(choices)) if choices else None
             if photo is None:
                 return None
             url = photo["src"]["large"]
@@ -169,9 +182,41 @@ class AssetResolver:
                 return deck
             plans = []
             query = topic_query(" ".join([deck.title, *(slide.title for slide in deck.slides)]))
+            photo_number = 0
             for index, slide in enumerate(deck.slides):
                 color = "ffffff" if slide.layout in {"title", "closing", "section"} else "1b365d"
-                plans.append((index, "corner", "icon", "circle", color))
+                if slide.layout == "editorial":
+                    from app.render.theme import get_theme
+
+                    color = str(get_theme(deck.theme).primary).lower()
+                    if slide.archetype in {
+                        "cover",
+                        "split_image",
+                        "big_stat",
+                        "quote",
+                        "closing_cta",
+                    }:
+                        plans.append(
+                            (
+                                index,
+                                "hero",
+                                "photo",
+                                topic_query(slide.image_query or query),
+                                photo_number,
+                            )
+                        )
+                        photo_number += 1
+                    for number, item in enumerate(slide.items):
+                        name = icon_name(item.title)
+                        if number < len(slide.icon_names):
+                            requested = slide.icon_names[number]
+                            if (
+                                re.fullmatch(r"[a-z][a-z0-9-]{1,45}", requested)
+                                and requested != "circle"
+                            ):
+                                name = requested
+                        if name:
+                            plans.append((index, f"item:{number}", "icon", name, color))
                 if slide.layout == "title":
                     plans.append((index, "hero", "photo", query, 0))
                 if slide.layout == "ask_allocation":
@@ -184,9 +229,9 @@ class AssetResolver:
                     )
                 if slide.layout in {"flow_steps", "process"}:
                     for number, step in enumerate(slide.steps):
-                        plans.append(
-                            (index, f"step:{number}", "icon", icon_name(step.title), "ffffff")
-                        )
+                        name = icon_name(step.title)
+                        if name:
+                            plans.append((index, f"step:{number}", "icon", name, "ffffff"))
                 if slide.layout == "quadrants":
                     for quadrant in slide.quadrants:
                         for name in quadrant.names:
@@ -221,7 +266,11 @@ class AssetResolver:
             assets, used_photos = [], set()
             for index, key, role, query, variant in plans:
                 record = results.get((role, query, variant))
-                if not record or (role == "photo" and record["source_url"] in used_photos):
+                if not record or (
+                    role == "photo"
+                    and record["source_url"] in used_photos
+                    and deck.design_version != "gamma-v1"
+                ):
                     continue
                 if role == "photo":
                     used_photos.add(record["source_url"])

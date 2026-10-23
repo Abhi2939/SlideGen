@@ -219,6 +219,49 @@ class QuadrantsSlide(_SlideBase):
     quadrants: list[Quadrant] = Field(min_length=4, max_length=4)
 
 
+Archetype = Literal[
+    "cover",
+    "split_image",
+    "three_cards",
+    "four_cards",
+    "timeline_horizontal",
+    "big_stat",
+    "quote",
+    "comparison",
+    "process_steps",
+    "grid_2x2",
+    "closing_cta",
+]
+
+
+class StoryItem(_Model):
+    title: str = Field(min_length=1, max_length=55)
+    description: str = Field(min_length=1, max_length=190)
+    quarter: Literal["Q1", "Q2", "Q3", "Q4"] | None = None
+
+
+class StorySlide(_SlideBase):
+    layout: Literal["editorial"] = "editorial"
+    archetype: Archetype
+    subtitle: str | None = Field(default=None, max_length=180)
+    items: list[StoryItem] = Field(default_factory=list, max_length=6)
+    image_query: str | None = Field(default=None, max_length=90)
+    icon_names: list[str] = Field(default_factory=list, max_length=6)
+    notes: str | None = Field(default=None, max_length=1500)
+    illustrative: bool = False
+
+    @model_validator(mode="after")
+    def _complete_regions(self):
+        expected = {"three_cards": 3, "four_cards": 4, "grid_2x2": 4}
+        if self.archetype in expected and len(self.items) != expected[self.archetype]:
+            raise ValueError("card archetype needs exactly its declared item count")
+        if self.archetype in {"cover", "closing_cta"} and not self.subtitle:
+            raise ValueError("cover and closing need a subtitle")
+        if self.archetype == "timeline_horizontal" and not 3 <= len(self.items) <= 5:
+            raise ValueError("timeline needs three to five fully described nodes")
+        return self
+
+
 Slide = Annotated[
     Union[
         TitleSlide,
@@ -235,6 +278,7 @@ Slide = Annotated[
         MarketSnapshotSlide,
         FlowStepsSlide,
         QuadrantsSlide,
+        StorySlide,
     ],
     Field(discriminator="layout"),
 ]
@@ -266,9 +310,12 @@ class Deck(_Model):
     theme: str = "default"
     slides: list[Slide] = Field(min_length=3, max_length=30)
     assets: list[DeckAsset] = Field(default_factory=list)
+    design_version: Literal["gamma-v1"] | None = None
 
     @model_validator(mode="after")
     def _structure(self):
-        if self.slides[0].layout != "title":
+        if self.slides[0].layout != "title" and not (
+            self.slides[0].layout == "editorial" and self.slides[0].archetype == "cover"
+        ):
             raise ValueError("the first slide must use the 'title' layout")
         return self

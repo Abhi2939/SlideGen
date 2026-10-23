@@ -4,7 +4,6 @@ from pptx.util import Inches, Pt
 from pptx.oxml.ns import qn
 
 from app.render import fit
-from app.render.assets import add_asset
 from app.render.theme import CONTENT_W, MARGIN_TOP, MARGIN_X, TITLE_H, Theme
 
 BLANK_LAYOUT = 6
@@ -16,17 +15,6 @@ def new_slide(prs, theme: Theme, bg=None):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = bg or theme.bg
-    if not add_asset(slide, "corner", 12.2, 0.22, 0.5, 0.5):
-        mark = add_rect(
-            slide,
-            Inches(12.2),
-            Inches(0.22),
-            Inches(0.5),
-            Inches(0.5),
-            theme.accent,
-            MSO_SHAPE.DONUT,
-        )
-        mark.name = "SlideGen corner mark"
     return slide
 
 

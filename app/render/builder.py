@@ -43,6 +43,11 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
+    editorial = deck.design_version == "gamma-v1"
+    if editorial:
+        from app.render.editorial import configure_master
+
+        configure_master(prs, theme)
 
     for index, data in enumerate(deck.slides):
         assets = [a for a in deck.assets if a.slide_index == index]
@@ -50,7 +55,12 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
         count = len(prs.slides)
         try:
             with asset_scope(assets):
-                slide = renderer(prs, data, theme)
+                if data.layout == "editorial":
+                    from app.render.editorial import render
+
+                    slide = render(prs, data, theme, brand=deck.title, number=index + 1)
+                else:
+                    slide = renderer(prs, data, theme)
         except Exception as exc:
             if strict:
                 raise
@@ -61,6 +71,8 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
             slide = _fallback(prs, data, theme)
 
         notes = [data.speaker_notes] if data.speaker_notes else []
+        if getattr(data, "notes", None):
+            notes.append(data.notes)
         for asset in assets:
             notes.append(
                 f"Visual source ({asset.key}): {asset.source_url}\n"
@@ -75,7 +87,7 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
         if notes:
             slide.notes_slide.notes_text_frame.text = "\n\n".join(notes)
         photos = [a for a in assets if a.role == "photo"]
-        if photos:
+        if photos and not editorial:
             credit = "Illustrative stock photo: " + "; ".join(
                 f"{a.photographer} / Pexels" for a in photos
             )

@@ -83,7 +83,7 @@ def test_blush_theme_has_readable_cover_without_unsupplied_product_art(tmp_path)
         for shape in slide.shapes:
             if shape.has_text_frame:
                 assert all(
-                    run.font.name == "Calibri"
+                    run.font.name in {"Calibri", "Georgia"}
                     for p in shape.text_frame.paragraphs
                     for run in p.runs
                 )

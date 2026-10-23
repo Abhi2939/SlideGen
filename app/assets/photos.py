@@ -23,6 +23,12 @@ PHOTO_CATALOG = {
             "flat-lay-of-makeup-products-on-white-background-37356602",
             "Letícia Alvares",
         ),
+        (
+            "12955707/pexels-photo-12955707.jpeg",
+            "a-flatlay-of-cosmetics-12955707",
+            "Atlantic Ambience",
+        ),
+        ("3552894/pexels-photo-3552894.jpeg", "photo-of-beauty-products-3552894", "Nothing Ahead"),
     ),
     "financial technology": (
         (
@@ -39,6 +45,23 @@ PHOTO_CATALOG = {
             "36392985/pexels-photo-36392985.jpeg",
             "modern-skyscrapers-in-singapore-s-financial-district-36392985",
             "Jess Chen",
+        ),
+    ),
+    "education learning": (
+        (
+            "5212695/pexels-photo-5212695.jpeg",
+            "a-two-girls-using-laptop-with-classmates-5212695",
+            "Max Fischer",
+        ),
+        (
+            "8199761/pexels-photo-8199761.jpeg",
+            "students-studying-together-while-looking-at-the-screen-of-a-laptop-8199761",
+            "Yan Krukau",
+        ),
+        (
+            "6147267/pexels-photo-6147267.jpeg",
+            "young-students-working-on-laptop-while-preparing-for-exam-in-campus-6147267",
+            "Keira Burton",
         ),
     ),
 }
