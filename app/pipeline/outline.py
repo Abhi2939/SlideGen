@@ -159,7 +159,17 @@ def _compact_duplicate_fact_plans(prompt: str, outline: OutlineOutput) -> Outlin
             and re.search(r"\b(?:company|brand|startup|our|we)\b", prompt, re.I)
             and not re.search(r"\b(?:closing|call to action|CTA|thank.you)\b", prompt, re.I)
         )
-        if (duplicate or empty_company_closing) and len(outline.slides) - removed > 3:
+        empty_company_stat = (
+            plan.layout == "stat"
+            and not facts
+            and re.search(r"\b(?:company|brand|startup|our|we|fintech)\b", prompt, re.I)
+            and not re.search(
+                r"\b(?:stats?|statistics|metrics?|charts?|figures?|graphs?)\b", prompt, re.I
+            )
+        )
+        if (duplicate or empty_company_closing or empty_company_stat) and len(
+            outline.slides
+        ) - removed > 3:
             removed += 1
             continue
         kept.append(plan)
@@ -168,6 +178,56 @@ def _compact_duplicate_fact_plans(prompt: str, outline: OutlineOutput) -> Outlin
     return outline.model_copy(
         update={"slides": [p.model_copy(update={"index": i}) for i, p in enumerate(kept)]}
     )
+
+
+def _route_product_attributes(outline: OutlineOutput, analysis: AnalysisOutput) -> OutlineOutput:
+    """Keep source product/personalization facts with products, away from launch tactics."""
+    plans = list(outline.slides)
+    targets = [
+        i
+        for i, plan in enumerate(plans)
+        if re.search(
+            r"\b(?:products?|collection|offering|personalization|differentiation)\b",
+            plan.title,
+            re.I,
+        )
+        and not re.search(r"\b(?:launch|growth|roadmap|timeline)\b", plan.title, re.I)
+        and plan.layout in {"bullets", "two_column", "comparison"}
+    ]
+    if not targets:
+        return outline
+    by_id = {fact.id: fact for fact in analysis.required_facts}
+    for index, plan in enumerate(plans):
+        if not re.search(r"\blaunch\b", plan.title, re.I):
+            continue
+        move = [
+            fact_id
+            for fact_id in plan.required_fact_ids
+            if fact_id in by_id
+            and re.search(
+                r"\b(?:skin tone|undertone|blended|wrong shade|tailored|personalized)\b",
+                by_id[fact_id].text,
+                re.I,
+            )
+            and not re.search(
+                r"\b(?:launch|growth|quiz|waitlist|demos?|quarter|subscriptions|UGC)\b",
+                by_id[fact_id].text,
+                re.I,
+            )
+        ]
+        if move:
+            plans[index] = plan.model_copy(
+                update={"required_fact_ids": [i for i in plan.required_fact_ids if i not in move]}
+            )
+            target = targets[0]
+            plans[target] = plans[target].model_copy(
+                update={
+                    "required_fact_ids": list(
+                        dict.fromkeys([*plans[target].required_fact_ids, *move])
+                    )
+                }
+            )
+    return outline.model_copy(update={"slides": plans})
 
 
 def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
@@ -421,6 +481,7 @@ def create_outline(
             grounded_outline = _route_investor_product_facts(
                 clean_prompt, analysis, grounded_outline
             )
+            grounded_outline = _route_product_attributes(grounded_outline, analysis)
             grounded_outline = _compact_duplicate_fact_plans(clean_prompt, grounded_outline)
             # A target count must not force filler when the source is sparse.
             # Explicit user counts remain exact, including covers and closings.

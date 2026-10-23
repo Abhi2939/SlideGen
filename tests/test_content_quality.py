@@ -271,6 +271,74 @@ def test_fewer_slides_never_allows_dropping_source_facts():
         create_outline("Blush creator-led demos", analysis, Generator(outline.model_dump()), "fake")
 
 
+@pytest.mark.parametrize(
+    "extra, expected_count", [("", 4), (" Include stats.", 5), (" Make a 5-slide deck.", 5)]
+)
+def test_live_blush_plan_avoids_unrequested_empty_stat_and_groups_product_attributes(
+    extra, expected_count
+):
+    prompt = "Blush is a beauty brand offering foundation. Products are blended for your skin tone and undertone. Our launch uses a quiz, waitlist and creator demos. Growth through UGC and subscriptions."
+    analysis = AnalysisOutput(
+        deck_title="Blush",
+        deck_type="product",
+        slide_count=5,
+        required_facts=[
+            {"id": 0, "text": "Blush"},
+            {"id": 1, "text": "foundation"},
+            {"id": 2, "text": "Products are blended for your skin tone and undertone"},
+            {"id": 3, "text": "Launch uses a quiz, waitlist and creator demos"},
+            {"id": 4, "text": "Growth through UGC and subscriptions"},
+        ],
+    )
+    response = {
+        "deck_title": "Blush",
+        "slides": [
+            {
+                "index": 0,
+                "layout": "title",
+                "title": "Blush",
+                "purpose": "Introduce",
+                "required_fact_ids": [0],
+            },
+            {
+                "index": 1,
+                "layout": "bullets",
+                "title": "Our Products",
+                "purpose": "Products",
+                "required_fact_ids": [1],
+            },
+            {
+                "index": 2,
+                "layout": "bullets",
+                "title": "Launch Strategy",
+                "purpose": "Launch plans",
+                "required_fact_ids": [2, 3],
+            },
+            {
+                "index": 3,
+                "layout": "process",
+                "title": "Growth Plan",
+                "purpose": "Future plans",
+                "required_fact_ids": [4],
+            },
+            {
+                "index": 4,
+                "layout": "stat",
+                "title": "Product snapshot",
+                "purpose": "Summary",
+                "key_points": ["3 categories"],
+                "required_fact_ids": [],
+            },
+        ],
+    }
+    outline = create_outline(prompt + extra, analysis, Generator(response), "fake")
+    assert len(outline.slides) == expected_count
+    assert outline.slides[1].required_fact_ids == [1, 2]
+    assert outline.slides[2].required_fact_ids == [3]
+    assert outline.slides[3].layout == "flow_steps"
+    assert {i for plan in outline.slides for i in plan.required_fact_ids} == {0, 1, 2, 3, 4}
+
+
 def test_business_owners_as_audience_does_not_force_company_placeholders():
     from app.pipeline.write_slides import _can_use_sparse_company_placeholder
 
