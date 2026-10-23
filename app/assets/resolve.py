@@ -50,6 +50,13 @@ def topic_query(title):
 
 def icon_name(text):
     for pattern, name in (
+        (r"ugc|creator|demo", "video"),
+        (r"subscription|repeat", "repeat"),
+        (r"pop.up|store", "store"),
+        (r"festive|festival", "party-popper"),
+        (r"launch", "rocket"),
+        (r"start|begin", "play"),
+        (r"review|choice|options", "list-checks"),
         (r"fingerprint|biometric", "fingerprint"),
         (r"kyc|verify|verification|security", "shield-check"),
         (r"invoice|document|receipt", "file-text"),
@@ -115,7 +122,9 @@ class AssetResolver:
             source = photo["url"]
             if urlsplit(source).scheme != "https" or urlsplit(source).hostname != "www.pexels.com":
                 return None
-            photographer = str(photo["photographer"])[:120]
+            if any(not character.isprintable() for character in source):
+                return None
+            photographer = "".join(c for c in str(photo["photographer"]) if c.isprintable())[:120]
             licence = "Pexels License; https://www.pexels.com/license/; illustrative stock photo, no endorsement"
         elif role == "icon":
             url = f"https://api.iconify.design/lucide/{query}.svg?color=%23{variant}"
@@ -179,6 +188,11 @@ class AssetResolver:
                                 slug = re.sub(r"[^a-z0-9]", "", name.lower())
                                 if slug:
                                     plans.append((index, name, "logo", slug, 0))
+                if slide.layout == "market_snapshot":
+                    for number, row in enumerate(slide.table_rows):
+                        plans.append(
+                            (index, f"driver:{number}", "icon", icon_name(row[0]), "1b365d")
+                        )
             unique = {(p[2], p[3], p[4]) for p in plans}
             executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="slidegen-assets")
             futures = {executor.submit(self._resolve, *item): item for item in unique}
@@ -217,7 +231,14 @@ class AssetResolver:
             return deck.model_copy(update={"assets": []})
 
     def _prune(self):
-        files = sorted(self.settings.cache_dir.glob("*.*"), key=lambda p: p.stat().st_mtime)
+        files = sorted(
+            (
+                p
+                for p in self.settings.cache_dir.rglob("*")
+                if p.is_file() and p.suffix in {".png", ".json"}
+            ),
+            key=lambda p: p.stat().st_mtime,
+        )
         total = sum(p.stat().st_size for p in files)
         for path in files:
             if total <= self.settings.cache_max_bytes:

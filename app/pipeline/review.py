@@ -412,6 +412,31 @@ def review_deck(
         raise ValueError("outline deck title does not match the analyzed deck title")
     validate_outline_facts(analysis, outline)
 
+    review_plans = []
+    facts_by_id = {fact.id: fact for fact in analysis.required_facts}
+    for plan, slide in zip(outline.slides, slides):
+        facts = [facts_by_id[i] for i in plan.required_fact_ids]
+        try:
+            placeholder = _placeholder_slide(plan, facts)
+        except ValueError:
+            review_plans.append(plan)
+            continue
+        if slide.model_dump(exclude={"speaker_notes"}) == placeholder.model_dump(
+            exclude={"speaker_notes"}
+        ):
+            # The writer deliberately substituted a deterministic safe scaffold.
+            # Align review's planning aid with that actual scaffold. Required fact
+            # IDs and raw reference validation still apply; no findings are dropped.
+            plan = plan.model_copy(
+                update={
+                    "title": slide.title,
+                    "key_points": [fact.text for fact in facts],
+                    "purpose": "Explicit placeholders for source details not supplied; do not invent replacements.",
+                }
+            )
+        review_plans.append(plan)
+    review_outline = outline.model_copy(update={"slides": review_plans})
+
     deck_content = [
         {
             "slide_index": index,
@@ -445,7 +470,7 @@ def review_deck(
         f"REVIEW REFERENCE CONTRACT:\n{reference_contract}\n\n"
         f"ORIGINAL USER REQUEST:\n{clean_prompt}\n\n"
         f"ANALYZED BRIEF:\n{analysis.model_dump_json(indent=2)}\n\n"
-        f"SLIDE OUTLINE:\n{outline.model_dump_json(indent=2)}\n\n"
+        f"SLIDE OUTLINE:\n{review_outline.model_dump_json(indent=2)}\n\n"
         "GENERATED DECK (each slide has an explicit zero-based slide_index):\n"
         f"{json.dumps(deck_content, ensure_ascii=False, indent=2)}"
     )

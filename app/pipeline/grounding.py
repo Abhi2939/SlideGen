@@ -4,15 +4,21 @@ import re
 
 
 UNSUPPORTED_CLAIM_PATTERNS = {
+    "unsupported product specifications": re.compile(
+        r"\b(?:easy integration|affordable pricing|24/7 support|round[- ]the[- ]clock support|"
+        r"join our beta|subscribe to updates)\b",
+        re.I,
+    ),
     "unsupported calls to action": re.compile(
         r"\b(?:follow us|follow (?:our|us on)|join (?:our|the) community|"
         r"book (?:a|your) (?:demo|call|consultation)|schedule (?:a|your) (?:demo|call)|"
-        r"download (?:our|the) app|visit our|shop now|buy now|order now)\b",
+        r"download (?:our|the) app|visit our|shop now|buy now|order now|"
+        r"join (?:our|the) waitlist|stay tuned|ready to launch)\b",
         re.IGNORECASE,
     ),
     "unsupported product benefit or guarantee": re.compile(
         r"\b(?:confidence in every purchase|boosts? confidence|unmatched quality|"
-        r"guaranteed results|risk[- ]free|save time|time savings|cost savings)\b",
+        r"guarantee(?:s|d)?|risk[- ]free|save time|time savings|cost savings)\b",
         re.IGNORECASE,
     ),
     "AI or algorithm claims": re.compile(
@@ -28,7 +34,7 @@ UNSUPPORTED_CLAIM_PATTERNS = {
         re.IGNORECASE,
     ),
     "shipping or delivery claims": re.compile(
-        r"\b(?:ship(?:s|ped|ping)?|deliver(?:s|ed|y)?|fulfill(?:s|ed|ment)?)\b",
+        r"\b(?:ship(?:s|ped|ping)?|deliver(?:s|ed|y|ing)?|fulfill(?:s|ed|ment|ing)?)\b",
         re.IGNORECASE,
     ),
     "website or sample offers": re.compile(

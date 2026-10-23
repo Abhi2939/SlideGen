@@ -41,6 +41,11 @@ generic workflow steps, value-proposition headings, audience framing, and
 competitor categories may be inferred; mark inferred workflows as conceptual.
 For broad non-company topics, timeless general-knowledge explanations are
 acceptable as qualitative content, without fabricated statistics or sources.
+A generic product-launch request for an audience such as small business owners
+can use a suggested launch-planning framework. It does not establish an actual
+company's features, pricing, support, partnerships, beta program, or channels.
+Use conceptual planning activities and information to decide, not invented
+product specifications or invitations.
 The analyzed brief and outline are planning aids, not evidence. Do not infer technology,
 manufacturing methods, fulfillment or shipping, customer behavior, market
 facts, or outcomes from a product description. For example, a custom-blended
@@ -125,6 +130,36 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
         )
 
     return outline.model_copy(update={"slides": grounded_slides})
+
+
+def _compact_duplicate_fact_plans(prompt: str, outline: OutlineOutput) -> OutlineOutput:
+    """Keep a visual plan instead of a duplicate bullet preview of the same facts."""
+    from app.pipeline.analyze import _EXPLICIT_SLIDE_COUNT_PATTERN
+
+    if _EXPLICIT_SLIDE_COUNT_PATTERN.search(prompt) or len(outline.slides) <= 4:
+        return outline
+    kept = []
+    removed = 0
+    for plan in outline.slides:
+        facts = set(plan.required_fact_ids)
+        duplicate = (
+            plan.layout == "bullets"
+            and facts
+            and any(
+                other.layout in {"flow_steps", "process", "two_column"}
+                and facts <= set(other.required_fact_ids)
+                for other in outline.slides
+            )
+        )
+        if duplicate and len(outline.slides) - removed > 3:
+            removed += 1
+            continue
+        kept.append(plan)
+    if len(kept) < 3:
+        return outline
+    return outline.model_copy(
+        update={"slides": [p.model_copy(update={"index": i}) for i, p in enumerate(kept)]}
+    )
 
 
 def _validate_requested_layouts(prompt: str, outline: OutlineOutput) -> None:
@@ -378,6 +413,7 @@ def create_outline(
             grounded_outline = _route_investor_product_facts(
                 clean_prompt, analysis, grounded_outline
             )
+            grounded_outline = _compact_duplicate_fact_plans(clean_prompt, grounded_outline)
             # A target count must not force filler when the source is sparse.
             # Explicit user counts remain exact, including covers and closings.
             from app.pipeline.analyze import _EXPLICIT_SLIDE_COUNT_PATTERN

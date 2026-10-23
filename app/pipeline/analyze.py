@@ -4,7 +4,10 @@ import re
 from decimal import Decimal
 
 from app.pipeline.briefs import beauty_brand
-from app.pipeline.grounding import unsupported_specific_claim_categories
+from app.pipeline.grounding import (
+    unsupported_claim_categories,
+    unsupported_specific_claim_categories,
+)
 from app.pipeline.models import AnalysisOutput, RequiredFact
 from app.llm.structured import StructuredGenerator
 
@@ -93,6 +96,7 @@ def analyze_prompt(
         for fact in analysis.required_facts
         if _source_numbers(fact.text) <= source_numbers
         and not unsupported_specific_claim_categories(fact.text, clean_prompt)
+        and not unsupported_claim_categories(fact.text, clean_prompt, allow_problem_framing=True)
     ]
     if safe_facts != analysis.required_facts:
         analysis = analysis.model_copy(update={"required_facts": safe_facts})

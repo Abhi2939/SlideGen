@@ -255,7 +255,9 @@ def _contains_deck_structure_echo(slide_copy: str) -> bool:
 
 def _can_use_sparse_company_placeholder(prompt: str, analysis: AnalysisOutput) -> bool:
     """Use placeholders only when a company prompt gives no specific source facts."""
-    if not re.search(r"\b(?:company|business|startup|brand|firm|organization)\b", prompt, re.I):
+    if not re.search(
+        r"\b(?:company|business(?!\s+owners)|startup|brand|firm|organization)\b", prompt, re.I
+    ):
         return False
     return all(_is_generic_business_fact(fact) for fact in analysis.required_facts)
 
@@ -524,12 +526,15 @@ def _numeric_data_issue(
             return "user-sourced numeric data was not present in the analyzed required facts"
         return None
     elif isinstance(slide, MarketSnapshotSlide):
-        checked_text = (
-            (slide_text or "").replace(slide.start_label, "").replace(slide.end_label, "")
-        )
+        checked_text = slide_text or ""
         if not _numeric_values(checked_text) <= supplied_values:
             return "generated numeric details were not present in the analyzed required facts"
-        quantitative_values = [slide.start_value or "", slide.end_value or ""]
+        quantitative_values = [
+            slide.start_label,
+            slide.end_label,
+            slide.start_value or "",
+            slide.end_value or "",
+        ]
         for segment in slide.segments:
             quantitative_values.extend([segment.lead_value or "", segment.next_value or ""])
         quantitative_values.extend(value for row in slide.table_rows for value in row)
@@ -666,6 +671,13 @@ def _write_one(
             temperature=0.3,
             max_tokens=max_tokens,
         )
+        if (
+            isinstance(slide, ClosingSlide)
+            and slide.contact
+            and slide.contact.startswith("[")
+            and not re.search(r"\b(?:contact|email|phone)\b", prompt, re.I)
+        ):
+            slide = slide.model_copy(update={"contact": None})
         try:
             if slide.layout != plan.layout:
                 raise ValueError(f"generated layout {slide.layout!r} does not match the plan")

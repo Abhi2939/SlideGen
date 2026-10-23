@@ -127,10 +127,11 @@ class JobRunner:
                         provider_code = cause.code
                     cause = cause.__cause__
                 log.warning(
-                    "job %s failed during deck generation: type=%s provider_code=%s",
+                    "job %s failed during deck generation: type=%s provider_code=%s reason=%s",
                     job_id,
                     type(exc).__name__,
                     provider_code,
+                    getattr(exc, "reason", None),
                 )
             if isinstance(exc, DeckReviewError):
                 log.error(

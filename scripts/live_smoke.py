@@ -10,7 +10,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.config import Settings  # noqa: E402
-from app.core.errors import DeckReviewError, ProviderLimitError  # noqa: E402
+from app.core.errors import DeckReviewError, ProviderLimitError, SlideWriteError  # noqa: E402
 from app.pipeline.orchestrator import generate_deck  # noqa: E402
 from app.render.builder import build_deck  # noqa: E402
 
@@ -50,10 +50,15 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
                     settings=settings,
                     max_workers=1,
                     deadline=time.monotonic() + 900,
+                    progress_callback=lambda stage: print(f"{name}: {stage}", flush=True),
                     usage_callback=counts.update,
                     review_callback=reviews.append,
                 )
                 build(deck, output_dir / f"{index:02d}-{name}.pptx", strict=True)
+                if hasattr(deck, "model_dump_json"):
+                    (output_dir / f"{index:02d}-{name}.json").write_text(
+                        deck.model_dump_json(indent=2), encoding="utf-8"
+                    )
             except Exception as exc:
                 print(f"Stopped at {name}.")
                 print("Token usage (reported calls only): " + json.dumps(counts))
@@ -64,7 +69,25 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
                     print("Final review: " + exc.review.model_dump_json())
                 else:
                     # Provider messages/tracebacks can contain private request data.
-                    print("Generation or rendering failed; inspect local job logs.")
+                    print(f"Generation or rendering failed: {type(exc).__name__}.")
+                    cause = exc
+                    while cause is not None:
+                        metadata = {}
+                        for key in ("status_code", "attempts", "slide_index"):
+                            value = getattr(cause, key, None)
+                            if type(value) is int:
+                                metadata[key] = value
+                        if getattr(cause, "code", None) in {
+                            "output_parse_failed",
+                            "json_validate_failed",
+                            "empty_response",
+                        }:
+                            metadata["code"] = cause.code
+                        if metadata:
+                            print("Safe failure metadata: " + json.dumps(metadata))
+                        if isinstance(cause, SlideWriteError):
+                            print("Safe failure reason: " + cause.reason)
+                        cause = cause.__cause__
                 return 1
             completed.append(name)
             print(

@@ -15,6 +15,10 @@ from app.pipeline.outline import create_outline
         "Join our community",
         "Shop now",
         "Guaranteed results",
+        "Guarantees you never get the wrong shade",
+        "Stay tuned",
+        "Join the waitlist",
+        "Ready to launch",
     ],
 )
 def test_closing_claims_and_ctas_need_source_evidence(claim):
@@ -24,6 +28,48 @@ def test_closing_claims_and_ctas_need_source_evidence(claim):
 
 def test_one_supplied_cta_does_not_authorize_other_ctas():
     assert unsupported_claim_categories("Follow us on socials", "Visit our website")
+
+
+def test_delivery_inflections_are_not_an_unsupported_claim_escape():
+    assert unsupported_claim_categories("Delivering custom products", "Custom beauty products")
+
+
+def test_duplicate_bullet_preview_is_removed_when_visual_plan_covers_all_facts():
+    from app.pipeline.outline import _compact_duplicate_fact_plans
+
+    outline = OutlineOutput(
+        deck_title="Blush",
+        slides=[
+            {"index": 0, "layout": "title", "title": "Blush", "purpose": "Introduce"},
+            {
+                "index": 1,
+                "layout": "bullets",
+                "title": "Products",
+                "purpose": "Describe",
+                "required_fact_ids": [0],
+            },
+            {
+                "index": 2,
+                "layout": "process",
+                "title": "Launch",
+                "purpose": "Plans",
+                "required_fact_ids": [1, 2, 3],
+            },
+            {
+                "index": 3,
+                "layout": "bullets",
+                "title": "Launch focus",
+                "purpose": "Plans",
+                "required_fact_ids": [1, 2, 3],
+            },
+            {"index": 4, "layout": "closing", "title": "Summary", "purpose": "Close"},
+        ],
+    )
+    compact = _compact_duplicate_fact_plans("Blush launch and growth plans", outline)
+    assert len(compact.slides) == 4
+    assert [p.index for p in compact.slides] == [0, 1, 2, 3]
+    assert {i for p in compact.slides for i in p.required_fact_ids} == {0, 1, 2, 3}
+    assert _compact_duplicate_fact_plans("Make a 5-slide deck", outline) is outline
 
 
 class Generator:
@@ -113,3 +159,77 @@ def test_fewer_slides_never_allows_dropping_source_facts():
     )
     with pytest.raises(ValueError, match="omits required fact"):
         create_outline("Blush creator-led demos", analysis, Generator(outline.model_dump()), "fake")
+
+
+def test_business_owners_as_audience_does_not_force_company_placeholders():
+    from app.pipeline.write_slides import _can_use_sparse_company_placeholder
+
+    analysis = AnalysisOutput(deck_title="Launch", deck_type="launch plan", slide_count=6)
+    assert not _can_use_sparse_company_placeholder(
+        "Create a 6-slide product launch presentation for small business owners", analysis
+    )
+    assert _can_use_sparse_company_placeholder("Make a deck for my electronics company", analysis)
+
+
+def test_market_periods_need_evidence_and_defaults_do_not_invent_years():
+    from app.core.deck_schema import MarketSnapshotSlide
+    from app.pipeline.write_slides import _numeric_data_issue
+
+    slide = MarketSnapshotSlide(layout="market_snapshot", title="Market")
+    assert slide.start_label == "[Base period]"
+    assert slide.end_label == "[Forecast period]"
+    analysis = AnalysisOutput(deck_title="Market", deck_type="overview", slide_count=3)
+    invented = slide.model_copy(update={"start_label": "2025", "end_label": "2030"})
+    assert _numeric_data_issue(invented, analysis) is not None
+    supplied = AnalysisOutput.model_validate(
+        {**analysis.model_dump(), "required_facts": [{"id": 0, "text": "2025 to 2030"}]}
+    )
+    assert _numeric_data_issue(invented, supplied) is None
+
+
+def test_review_aligns_exact_safe_scaffolds_without_dropping_findings():
+    import json
+    from app.pipeline.review import review_deck
+    from app.pipeline.models import ReviewOutput
+    from app.pipeline.write_slides import _placeholder_slide
+
+    analysis = AnalysisOutput(deck_title="Launch", deck_type="company", slide_count=3)
+    outline = OutlineOutput(
+        deck_title="Launch",
+        slides=[
+            {"index": 0, "layout": "title", "title": "Launch", "purpose": "Introduce"},
+            {
+                "index": 1,
+                "layout": "bullets",
+                "title": "Unsupported product features",
+                "purpose": "Explain",
+                "key_points": ["Affordable pricing", "24/7 support"],
+            },
+            {"index": 2, "layout": "closing", "title": "Follow us", "purpose": "Close"},
+        ],
+    )
+    slides = [_placeholder_slide(plan) for plan in outline.slides]
+
+    class Reviewer:
+        def generate(self, output_model, **kwargs):
+            plans = json.loads(
+                kwargs["user_prompt"].split("SLIDE OUTLINE:\n")[1].split("\n\nGENERATED DECK")[0]
+            )
+            assert plans["slides"][1]["title"] == slides[1].title
+            assert plans["slides"][1]["key_points"] == []
+            return ReviewOutput(
+                passed=False,
+                issues=[
+                    {
+                        "category": "overflow",
+                        "severity": "high",
+                        "detail": "Actual copy is too long",
+                        "slide_indices": [1],
+                    }
+                ],
+                regenerate_slide_indices=[1],
+            )
+
+    review = review_deck("Make a company deck", analysis, outline, slides, Reviewer(), "fake")
+    assert not review.passed
+    assert review.issues[0].category == "overflow"

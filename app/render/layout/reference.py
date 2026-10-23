@@ -351,6 +351,9 @@ def _market_table(slide, data):
                 table.rows[row_index].height / Inches(1),
                 fill=fill,
             )
+        row_y = 4.46 + sum(r.height for r in list(table.rows)[:row_index]) / Inches(1)
+        if add_asset(slide, f"driver:{row_index - 1}", 0.55, row_y + 0.06, 0.20, 0.20):
+            table.cell(row_index, 0).margin_left = Inches(0.32)
 
 
 def render_market_snapshot(prs, data, theme: Theme):

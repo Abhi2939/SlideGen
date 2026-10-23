@@ -66,7 +66,10 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
             )
         if any(a.role == "icon" for a in assets):
             notice = Path(__file__).resolve().parents[1] / "assets" / "LUCIDE-LICENSE"
-            notes.append(notice.read_text(encoding="utf-8"))
+            try:
+                notes.append(notice.read_text(encoding="utf-8"))
+            except OSError:
+                pass
         if notes:
             slide.notes_slide.notes_text_frame.text = "\n\n".join(notes)
         photos = [a for a in assets if a.role == "photo"]

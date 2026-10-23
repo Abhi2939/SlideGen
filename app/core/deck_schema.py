@@ -171,9 +171,9 @@ class MarketSegment(_Model):
 class MarketSnapshotSlide(_SlideBase):
     layout: Literal["market_snapshot"]
     subtitle: str | None = Field(default=None, max_length=100)
-    start_label: str = Field(default="2025", max_length=20)
+    start_label: str = Field(default="[Base period]", max_length=20)
     start_value: str | None = Field(default=None, max_length=40)
-    end_label: str = Field(default="2030", max_length=20)
+    end_label: str = Field(default="[Forecast period]", max_length=20)
     end_value: str | None = Field(default=None, max_length=40)
     segments: list[MarketSegment] = Field(default_factory=list, max_length=4)
     table_headers: list[str] = Field(default_factory=list, max_length=5)

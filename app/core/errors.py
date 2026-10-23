@@ -45,6 +45,25 @@ class SlideWriteError(SlideGenError):
         self.slide_index = slide_index
         self.title = title
         self.detail = detail
+        self.reason = next(
+            (
+                code
+                for marker, code in (
+                    ("generated title does not match", "title_mismatch"),
+                    ("generated layout", "layout_mismatch"),
+                    ("duplicate bullet", "duplicate_bullets"),
+                    ("repeated verbatim facts", "repeated_fact"),
+                    ("omitted verbatim fact", "missing_verbatim_fact"),
+                    ("presentation instructions", "instruction_echo"),
+                    ("numeric details", "unprovided_numeric_data"),
+                    ("unsupported details", "unsupported_claim"),
+                    ("contact information", "unsupported_contact"),
+                    ("invalid structured output", "invalid_structured_output"),
+                )
+                if marker in detail
+            ),
+            "slide_validation_failed",
+        )
         super().__init__(f"failed to write slide {slide_index + 1} ({title!r}): {detail}")
 
 
