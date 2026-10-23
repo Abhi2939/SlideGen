@@ -5,6 +5,7 @@ from pptx.enum.shapes import MSO_SHAPE
 from pptx.util import Inches
 
 from app.render.common import add_rect, add_text, add_title, new_slide
+from app.render.assets import add_asset
 from app.render.theme import BODY_H, BODY_TOP, CONTENT_W, GAP_S, MARGIN_X
 
 
@@ -44,6 +45,16 @@ def render(prs, data, theme):
         badge_x = x + Inches(0.18)
         badge_y = y + Inches(0.18)
         add_rect(slide, badge_x, badge_y, badge, badge, theme.accent, MSO_SHAPE.OVAL)
+        icon_x = x + card_w - Inches(0.65)
+        add_rect(slide, icon_x, badge_y, badge, badge, theme.accent, MSO_SHAPE.OVAL)
+        add_asset(
+            slide,
+            f"step:{index}",
+            icon_x / Inches(1) + 0.04,
+            badge_y / Inches(1) + 0.04,
+            0.28,
+            0.28,
+        )
         add_text(
             slide,
             badge_x,

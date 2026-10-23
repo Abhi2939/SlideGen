@@ -12,6 +12,7 @@ from pptx.oxml.ns import qn
 from pptx.util import Inches, Pt
 
 from app.render.common import add_text, new_slide
+from app.render.assets import add_asset
 from app.render.fit import text_height
 from app.render.theme import Theme
 
@@ -67,6 +68,10 @@ def _shape(slide, x, y, w, h, fill, *, kind=MSO_SHAPE.RECTANGLE, line=None):
     else:
         shape.line.fill.background()
     shape.shadow.inherit = False
+    for effect in shape._element.iter(qn("a:effectRef")):
+        effect.set("idx", "0")
+    if kind == MSO_SHAPE.ROUNDED_RECTANGLE:
+        shape.adjustments[0] = 0.16
     return shape
 
 
@@ -123,6 +128,8 @@ def _line(slide, x1, y1, x2, y2, *, color=LINE, width=1, dashed=False):
         MSO_CONNECTOR.STRAIGHT, Inches(x1), Inches(y1), Inches(x2), Inches(y2)
     )
     connector.shadow.inherit = False
+    for effect in connector._element.iter(qn("a:effectRef")):
+        effect.set("idx", "0")
     connector.line.color.rgb = color
     connector.line.width = Pt(width)
     if dashed:
@@ -133,11 +140,11 @@ def _line(slide, x1, y1, x2, y2, *, color=LINE, width=1, dashed=False):
 def _title(slide, text, *, subtitle=None, tagline=None, bg=WHITE):
     slide.background.fill.solid()
     slide.background.fill.fore_color.rgb = bg
-    _text(slide, 0.55, 0.28, 12.2, 0.58, text, size=27, color=TEXT, bold=True)
+    _text(slide, 0.55, 0.28, 11.4, 0.70, text, size=27, color=NAVY, bold=True)
     if tagline:
-        _text(slide, 0.58, 0.91, 12.1, 0.37, tagline, size=17, color=BLUE, bold=True)
+        _text(slide, 0.58, 1.02, 12.1, 0.37, tagline, size=17, color=BLUE, bold=True)
     if subtitle:
-        y = 1.28 if tagline else 0.9
+        y = 1.42 if tagline else 1.02
         _text(slide, 0.58, y, 12.1, 0.32, subtitle, size=12, color=MUTED)
 
 
@@ -158,6 +165,10 @@ def render_ask_allocation(prs, data, theme: Theme):
     run.font.size = Pt(_fit_size(run.text, 36, 3.17, 3.3))
     run.font.bold = True
     run.font.color.rgb = LINE if not data.ask else WHITE
+    if add_asset(slide, "hero", 0.22, 4.55, 3.2, 1.75, crop=True):
+        tf.vertical_anchor = MSO_ANCHOR.TOP
+        tf.margin_top = Inches(0.45)
+    add_asset(slide, "edge", 11.55, 2.05, 1.55, 4.6, crop=True)
 
     items = data.items
     complete = all(item.pct is not None for item in items)
@@ -189,14 +200,15 @@ def render_ask_allocation(prs, data, theme: Theme):
     hole = plot._element.find(qn("c:holeSize"))
     if hole is not None:
         hole.set("val", "66")
+    has_icon = add_asset(slide, "centre", cx - 0.22, cy - 0.47, 0.44, 0.44)
     _text(
         slide,
-        cx - 0.5,
-        cy - 0.35,
-        1.0,
-        0.7,
+        cx - 0.54,
+        cy if has_icon else cy - 0.35,
+        1.08,
+        0.44 if has_icon else 0.7,
         data.center_label.replace("Fund Allocation", "Fund\nAllocation"),
-        size=12,
+        size=10 if has_icon else 12,
         color=NAVY,
         bold=True,
         align=PP_ALIGN.CENTER,
@@ -226,10 +238,15 @@ def render_ask_allocation(prs, data, theme: Theme):
         ys = [cy] if slot_count == 1 else [top + index * gap for index in range(slot_count)]
         for node, adjusted_y in zip(nodes, ys):
             item, edge_x, edge_y, _, right = node
-            end_x = 8.58 if right else 5.92
+            end_x = 8.66 if right else 5.84
             elbow_x = cx + (size / 2 + 0.03) * (1 if right else -1)
             _line(slide, edge_x, edge_y, elbow_x, edge_y, color=MUTED, dashed=True)
-            _line(slide, elbow_x, edge_y, end_x, adjusted_y, color=MUTED, dashed=True)
+            # Distinct nested tracks prevent concentrated slices sharing one
+            # vertical leader line. Anchor order matches label order.
+            track_x = elbow_x + (0.012 * nodes.index(node)) * (1 if right else -1)
+            _line(slide, elbow_x, edge_y, track_x, edge_y, color=MUTED, dashed=True)
+            _line(slide, track_x, edge_y, track_x, adjusted_y, color=MUTED, dashed=True)
+            _line(slide, track_x, adjusted_y, end_x, adjusted_y, color=MUTED, dashed=True)
             box_x = 8.72 if right else 3.78
             width = 2.5 if right else 2.05
             _text(
@@ -444,10 +461,10 @@ def render_flow_steps(prs, data, theme: Theme):
     slide = new_slide(prs, theme)
     _title(slide, data.title, tagline=data.tagline, subtitle=data.subtitle, bg=PALE)
     steps = data.steps
-    card_w = min(3.0, 11.6 / len(steps))
-    left = max(0.85, card_w / 2 + 0.12)
+    left = 1.4
     right = 13.33 - left
     gap = (right - left) / (len(steps) - 1)
+    card_w = min(2.65, gap * 1.85)
     centers = []
     for index in range(len(steps)):
         t = index / (len(steps) - 1)
@@ -460,27 +477,30 @@ def render_flow_steps(prs, data, theme: Theme):
         _line(slide, x1, y1, x2, y2, color=GREEN, width=2)
     for index, (step, (cx, cy)) in enumerate(zip(steps, centers), start=1):
         _shape(slide, cx - 0.3, cy - 0.3, 0.6, 0.6, GREEN, kind=MSO_SHAPE.OVAL)
+        has_icon = add_asset(slide, f"step:{index - 1}", cx - 0.21, cy - 0.21, 0.42, 0.42)
+        if has_icon:
+            _shape(slide, cx + 0.22, cy - 0.13, 0.26, 0.26, BLUE, kind=MSO_SHAPE.OVAL)
         _text(
             slide,
-            cx - 0.3,
-            cy - 0.27,
-            0.6,
-            0.52,
+            cx + 0.22 if has_icon else cx - 0.3,
+            cy - 0.13 if has_icon else cy - 0.27,
+            0.26 if has_icon else 0.6,
+            0.24 if has_icon else 0.52,
             index,
-            size=15,
+            size=9 if has_icon else 15,
             color=WHITE,
             bold=True,
             align=PP_ALIGN.CENTER,
             valign=MSO_ANCHOR.MIDDLE,
         )
-        card_y = 4.1 + (0.7 if index % 2 == 0 else 0)
+        card_y = 3.85 if index % 2 else 5.45
         _line(slide, cx, cy + 0.32, cx, card_y, color=LINE, dashed=True)
         card = _shape(
             slide,
             cx - card_w / 2,
             card_y,
             card_w,
-            1.34,
+            1.48,
             WHITE,
             kind=MSO_SHAPE.ROUNDED_RECTANGLE,
             line=LINE,
@@ -496,7 +516,7 @@ def render_flow_steps(prs, data, theme: Theme):
         title_run = title_p.add_run()
         title_run.text = step.title
         title_run.font.name = FONT
-        title_size = _fit_size(step.title, 12, card_w - 0.24, 0.65 if step.detail else 1.18)
+        title_size = max(9, _fit_size(step.title, 12, card_w - 0.24, 0.62 if step.detail else 1.25))
         title_run.font.size = Pt(title_size)
         title_run.font.bold = True
         title_run.font.color.rgb = MUTED if step.title.startswith("[") else TEXT
@@ -506,7 +526,7 @@ def render_flow_steps(prs, data, theme: Theme):
             detail_run = detail_p.add_run()
             detail_run.text = step.detail
             detail_run.font.name = FONT
-            detail_run.font.size = Pt(_fit_size(step.detail, 9, card_w - 0.24, 0.53))
+            detail_run.font.size = Pt(9)
             detail_run.font.color.rgb = MUTED
     return slide
 
@@ -520,7 +540,7 @@ def render_quadrants(prs, data, theme: Theme):
         col, row = index % 2, index // 2
         x = 0.56 + col * 6.3
         heading_y = 1.5 if row == 0 else 6.62
-        _shape(
+        pill = _shape(
             slide,
             x + 0.48,
             heading_y,
@@ -529,6 +549,7 @@ def render_quadrants(prs, data, theme: Theme):
             GREEN,
             kind=MSO_SHAPE.ROUNDED_RECTANGLE,
         )
+        pill.adjustments[0] = 0.5
         _text(
             slide,
             x + 0.58,
@@ -546,6 +567,8 @@ def render_quadrants(prs, data, theme: Theme):
         for item_index, name in enumerate(quadrant.names):
             chip_x = x + 0.34 + (item_index % 3) * 1.88
             chip_y = chip_top + (item_index // 3) * 0.69
+            if add_asset(slide, name, chip_x + 0.08, chip_y + 0.04, 1.56, 0.52):
+                continue
             chip = _shape(
                 slide,
                 chip_x,

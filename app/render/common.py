@@ -1,8 +1,10 @@
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, MSO_AUTO_SIZE, PP_ALIGN
 from pptx.util import Inches, Pt
+from pptx.oxml.ns import qn
 
 from app.render import fit
+from app.render.assets import add_asset
 from app.render.theme import CONTENT_W, MARGIN_TOP, MARGIN_X, TITLE_H, Theme
 
 BLANK_LAYOUT = 6
@@ -14,6 +16,17 @@ def new_slide(prs, theme: Theme, bg=None):
     fill = slide.background.fill
     fill.solid()
     fill.fore_color.rgb = bg or theme.bg
+    if not add_asset(slide, "corner", 12.2, 0.22, 0.5, 0.5):
+        mark = add_rect(
+            slide,
+            Inches(12.2),
+            Inches(0.22),
+            Inches(0.5),
+            Inches(0.5),
+            theme.accent,
+            MSO_SHAPE.DONUT,
+        )
+        mark.name = "SlideGen corner mark"
     return slide
 
 
@@ -23,6 +36,10 @@ def add_rect(slide, x, y, w, h, color, shape=MSO_SHAPE.RECTANGLE):
     s.fill.fore_color.rgb = color
     s.line.fill.background()
     s.shadow.inherit = False
+    for effect in s._element.iter(qn("a:effectRef")):
+        effect.set("idx", "0")
+    if shape == MSO_SHAPE.ROUNDED_RECTANGLE:
+        s.adjustments[0] = 0.12
     return s
 
 
@@ -62,13 +79,13 @@ def add_text(
 def add_title(slide, theme: Theme, text: str, color=None):
     """Standard slide title: small accent bar plus a title that steps down
     in size until it fits the title area."""
-    add_rect(slide, MARGIN_X, MARGIN_TOP - Inches(0.22), Inches(0.7), Inches(0.06), theme.accent)
-    size = fit.choose_size(TITLE_SIZES, lambda s: fit.text_height(text, s, CONTENT_W) <= TITLE_H)
+    title_w = CONTENT_W - Inches(0.7)
+    size = fit.choose_size(TITLE_SIZES, lambda s: fit.text_height(text, s, title_w) <= TITLE_H)
     add_text(
         slide,
         MARGIN_X,
         MARGIN_TOP,
-        CONTENT_W,
+        title_w,
         TITLE_H,
         text,
         size_pt=size,

@@ -119,6 +119,7 @@ def test_orchestrator_runs_all_stages_and_returns_validated_deck():
         "Reviewing slide content",
         "Reviewing generated slides",
         "Validating presentation",
+        "Resolving visual assets",
     ]
 
 

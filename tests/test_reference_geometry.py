@@ -140,3 +140,29 @@ def test_geometry_reports_bounds_and_overlapping_text():
     errors = check_slide_geometry(slide, prs.slide_width, prs.slide_height)
     assert any("out of bounds" in e for e in errors)
     assert any("text overlap" in e for e in errors)
+
+
+def test_dense_eight_step_workflow_keeps_nine_point_minimum(tmp_path):
+    content = next(
+        s for s in reference_cases() if s["layout"] == "flow_steps" and len(s["steps"]) == 8
+    )
+    deck = Deck.model_validate(
+        {
+            "title": "Dense",
+            "slides": [
+                {"layout": "title", "title": "Dense"},
+                content,
+                {"layout": "closing", "title": "Summary"},
+            ],
+        }
+    )
+    prs = Presentation(build_deck(deck, tmp_path / "dense.pptx", strict=True))
+    sizes = [
+        run.font.size.pt
+        for shape in prs.slides[1].shapes
+        if shape.has_text_frame
+        for paragraph in shape.text_frame.paragraphs
+        for run in paragraph.runs
+        if run.font.size
+    ]
+    assert min(sizes) >= 9

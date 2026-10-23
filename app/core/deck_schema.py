@@ -1,5 +1,6 @@
 from typing import Annotated, Literal, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.assets.models import DeckAsset
 
 TITLE_MAX = 80
 SUBTITLE_MAX = 140
@@ -255,6 +256,7 @@ class Deck(_Model):
     tone: str | None = Field(default=None, max_length=60)
     theme: str = "default"
     slides: list[Slide] = Field(min_length=3, max_length=30)
+    assets: list[DeckAsset] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _structure(self):

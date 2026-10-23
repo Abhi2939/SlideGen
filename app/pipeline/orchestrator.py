@@ -5,6 +5,7 @@ import time
 from collections.abc import Callable
 
 from app.config import Settings
+from app.assets.resolve import prepare_assets
 from app.core.deck_schema import Deck
 from app.core.errors import DeckReviewError
 from app.llm.client import LLMClient
@@ -98,6 +99,8 @@ def generate_deck(
             models["outline"],
             semantic_attempts=semantic_attempts,
         )
+        if len(outline.slides) != analysis.slide_count:
+            analysis = analysis.model_copy(update={"slide_count": len(outline.slides)})
         announce("Writing slide content")
         slides = write_slides(
             clean_prompt,
@@ -138,12 +141,12 @@ def generate_deck(
             }
         )
         log.info(
-            "generated deck %r with %d slides after %d repair round(s)",
-            deck.title,
+            "generated deck with %d slides after %d repair round(s)",
             len(deck.slides),
             reviewed.repair_rounds,
         )
-        return deck
+        announce("Resolving visual assets")
+        return prepare_assets(deck, clean_prompt, deadline=deadline)
     finally:
         usage = getattr(generator, "usage", None)
         if usage is not None:

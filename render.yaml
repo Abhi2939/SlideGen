@@ -12,6 +12,12 @@ services:
       mountPath: /var/data
       sizeGB: 1
     envVars:
+      - key: SLIDEGEN_ASSETS_ENABLED
+        value: "true"
+      - key: SLIDEGEN_ASSET_CACHE_DIR
+        value: /var/data/assets
+      - key: PEXELS_API_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER

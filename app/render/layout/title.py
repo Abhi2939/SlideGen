@@ -1,6 +1,7 @@
 from pptx.util import Inches
 
 from app.render import fit
+from app.render.assets import add_asset
 from app.render.common import add_rect, add_text, new_slide
 from app.render.theme import CONTENT_W, GAP_M, MARGIN_X, SLIDE_H
 
@@ -12,6 +13,8 @@ def render(prs, data, theme):
     slide = new_slide(prs, theme, bg=theme.primary)
     is_blush = theme.name == "blush"
     w = int(CONTENT_W * (0.9 if is_blush else 0.8))
+    if add_asset(slide, "hero", 8.5, 1.35, 4.3, 5.5, crop=True):
+        w = Inches(7.1)
     x = Inches(0.9) if is_blush else MARGIN_X
 
     size = fit.choose_size(TITLE_SIZES, lambda s: fit.text_height(data.title, s, w) <= Inches(2.6))

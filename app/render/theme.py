@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from pptx.dml.color import RGBColor
 from pptx.util import Inches, Pt
@@ -8,16 +8,16 @@ SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
 
 # Spacing grid
-MARGIN_X = Inches(0.8)
-MARGIN_TOP = Inches(0.7)
+MARGIN_X = Inches(0.55)
+MARGIN_TOP = Inches(0.28)
 MARGIN_BOTTOM = Inches(0.6)
 GAP_S = Inches(0.15)
 GAP_M = Inches(0.3)
 GAP_L = Inches(0.6)
 
 CONTENT_W = SLIDE_W - 2 * MARGIN_X
-TITLE_H = Inches(1.0)
-BODY_TOP = MARGIN_TOP + TITLE_H + GAP_M
+TITLE_H = Inches(0.72)
+BODY_TOP = Inches(1.6)
 BODY_H = SLIDE_H - BODY_TOP - MARGIN_BOTTOM
 
 
@@ -54,41 +54,24 @@ class Theme:
 
 DEFAULT = Theme(
     name="default",
-    bg=rgb("FFFFFF"),
-    surface=rgb("F3F6FA"),
-    text=rgb("1F2937"),
+    bg=rgb("F3F4F6"),
+    surface=rgb("FFFFFF"),
+    text=rgb("333333"),
     muted=rgb("6B7280"),
-    primary=rgb("0F2A43"),
-    accent=rgb("14A39A"),
+    primary=rgb("1B365D"),
+    accent=rgb("7DBE1E"),
     on_primary=rgb("FFFFFF"),
     chart_colors=(
-        rgb("0F2A43"),
-        rgb("14A39A"),
+        rgb("1B365D"),
+        rgb("7DBE1E"),
         rgb("F59E0B"),
-        rgb("6366F1"),
+        rgb("263FB8"),
         rgb("EF4444"),
         rgb("94A3B8"),
     ),
 )
 
-BLUSH = Theme(
-    name="blush",
-    bg=rgb("FFF9FA"),
-    surface=rgb("F7E8EC"),
-    text=rgb("3E2B32"),
-    muted=rgb("8B6B75"),
-    primary=rgb("542E3B"),
-    accent=rgb("D47B98"),
-    on_primary=rgb("FFFFFF"),
-    chart_colors=(
-        rgb("542E3B"),
-        rgb("D47B98"),
-        rgb("EBC7D1"),
-        rgb("B78A66"),
-        rgb("A9B1A3"),
-        rgb("F1D9C4"),
-    ),
-)
+BLUSH = replace(DEFAULT, name="blush")
 
 THEMES = {"default": DEFAULT, "blush": BLUSH}
 
