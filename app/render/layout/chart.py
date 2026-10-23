@@ -3,6 +3,7 @@ from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 from pptx.util import Inches, Pt
 
 from app.render.common import add_text, add_title, new_slide
+from app.render import fit
 from app.render.theme import BODY_H, BODY_TOP, CONTENT_W, MARGIN_X
 
 CHART_TYPES = {
@@ -16,6 +17,38 @@ CHART_TYPES = {
 def render(prs, data, theme):
     slide = new_slide(prs, theme)
     add_title(slide, theme, data.title)
+    if data.placeholder:
+        content = (
+            "\n".join(data.categories) + "\n\n[Add verified values; no example figures are shown]"
+        )
+        content_h = BODY_H - Inches(1)
+        size = fit.choose_size(
+            (20, 18, 16, 14), lambda size: fit.text_height(content, size, CONTENT_W) <= content_h
+        )
+        add_text(
+            slide,
+            MARGIN_X,
+            BODY_TOP,
+            CONTENT_W,
+            Inches(0.6),
+            "Chart data to supply",
+            size_pt=24,
+            color=theme.primary,
+            font=theme.font_body,
+            bold=True,
+        )
+        add_text(
+            slide,
+            MARGIN_X,
+            BODY_TOP + Inches(1),
+            CONTENT_W,
+            content_h,
+            content,
+            size_pt=size,
+            color=theme.muted,
+            font=theme.font_body,
+        )
+        return slide
     caption_h = Inches(0.42) if data.caption or data.provenance else 0
     chart_h = BODY_H - caption_h - Inches(0.1)
     chart_data = CategoryChartData()

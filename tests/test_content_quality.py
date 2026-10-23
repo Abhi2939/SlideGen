@@ -34,6 +34,28 @@ def test_delivery_inflections_are_not_an_unsupported_claim_escape():
     assert unsupported_claim_categories("Delivering custom products", "Custom beauty products")
 
 
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Automated risk scoring",
+        "Instant fund disbursement",
+        "User-friendly interface",
+        "Analyze undertone through a brief questionnaire and visual guide",
+        "Large addressable market",
+        "Significant SME base seeking financing",
+        "Growing demand for digital credit",
+        "Increasing adoption of fintech solutions",
+        "Sign up for early access",
+        "Contact sales for demo",
+    ],
+)
+def test_live_discovered_unsupplied_mechanisms_market_claims_and_ctas_are_guarded(claim):
+    assert unsupported_claim_categories(
+        claim, "Fintech for SMEs. Include market.", allow_problem_framing=True
+    )
+    assert unsupported_claim_categories(claim, claim, allow_problem_framing=True) == []
+
+
 def test_duplicate_bullet_preview_is_removed_when_visual_plan_covers_all_facts():
     from app.pipeline.outline import _compact_duplicate_fact_plans
 
@@ -233,3 +255,81 @@ def test_review_aligns_exact_safe_scaffolds_without_dropping_findings():
     review = review_deck("Make a company deck", analysis, outline, slides, Reviewer(), "fake")
     assert not review.passed
     assert review.issues[0].category == "overflow"
+
+
+def test_unsupplied_chart_numbers_are_placeholders_until_example_data_is_requested(tmp_path):
+    from app.core.deck_schema import ChartSlide, Deck
+    from app.pipeline.write_slides import _guard_illustrative_data, _slide_text_content
+    from app.render.builder import build_deck
+    from pptx import Presentation
+
+    chart = ChartSlide(
+        layout="chart",
+        title="Launch metrics",
+        chart_type="bar",
+        categories=["Awareness", "Interest"],
+        series=[{"name": "Example", "values": [42, 87]}],
+        provenance="illustrative",
+    )
+    guarded = _guard_illustrative_data(chart, "Make a launch presentation")
+    assert guarded.placeholder
+    assert guarded.series[0].values == [0, 0]
+    assert "42" not in _slide_text_content(guarded)
+    deck = Deck(
+        title="Launch",
+        slides=[
+            {"layout": "title", "title": "Launch"},
+            guarded,
+            {"layout": "closing", "title": "Summary"},
+        ],
+    )
+    prs = Presentation(build_deck(deck, tmp_path / "placeholder.pptx", strict=True))
+    assert not any(s.has_chart for s in prs.slides[1].shapes)
+    assert any(s.has_text_frame and "no example figures" in s.text for s in prs.slides[1].shapes)
+    assert _guard_illustrative_data(chart, "Use illustrative data") is chart
+    dates = chart.model_copy(update={"categories": ["2025", "2030"]})
+    assert _guard_illustrative_data(dates, "Make a launch deck").categories == [
+        "[Add category]",
+        "[Add category]",
+    ]
+
+
+def test_incomplete_allocation_uses_neutral_placeholder_ring(tmp_path):
+    from app.core.deck_schema import Deck
+    from app.render.builder import build_deck
+    from pptx import Presentation
+
+    deck = Deck(
+        title="Funding",
+        slides=[
+            {"layout": "title", "title": "Funding"},
+            {
+                "layout": "ask_allocation",
+                "title": "Allocation",
+                "items": [{"label": "Product", "pct": None}, {"label": "Team", "pct": None}],
+            },
+            {"layout": "closing", "title": "Summary"},
+        ],
+    )
+    prs = Presentation(build_deck(deck, tmp_path / "allocation.pptx", strict=True))
+    chart = next(s.chart for s in prs.slides[1].shapes if s.has_chart)
+    assert list(chart.series[0].values) == [100]
+    assert len(chart.series[0].points) == 1
+
+
+def test_inferred_company_workflow_details_are_visibly_labelled():
+    from app.core.deck_schema import FlowStepsSlide
+    from app.pipeline.write_slides import _label_inferred_workflow
+
+    slide = FlowStepsSlide(
+        layout="flow_steps",
+        title="Launch",
+        steps=[
+            {"title": "Quiz", "detail": "An online form to explore preferences"},
+            {"title": "Waitlist", "detail": "Capture email addresses for notifications"},
+            {"title": "Demos"},
+        ],
+    )
+    result = _label_inferred_workflow(slide, "Our brand plans a quiz, waitlist and demos")
+    assert "Conceptual" in result.subtitle
+    assert _label_inferred_workflow(slide, "An educational presentation") is slide

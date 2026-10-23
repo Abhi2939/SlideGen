@@ -444,6 +444,9 @@ def review_deck(
         }
         for index, slide in enumerate(slides)
     ]
+    for item, slide in zip(deck_content, slides):
+        if getattr(slide, "placeholder", False):
+            item["content"].pop("series", None)
     reference_contract = (
         f"This deck contains exactly {len(slides)} slides. "
         f"Valid slide indices: {list(range(len(slides)))}. "

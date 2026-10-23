@@ -158,7 +158,7 @@ def test_redirect_and_oversized_responses_rejected(monkeypatch, response):
     ],
 )
 def test_wrong_content_and_unsafe_svg_rejected(data, kind):
-    with pytest.raises(Exception):
+    with pytest.raises((ValueError, OSError)):
         image_png(data, kind)
 
 

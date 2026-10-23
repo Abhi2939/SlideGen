@@ -1,6 +1,6 @@
 """Write planned slides as typed deck-schema models with bounded parallelism."""
 
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 import json
 from threading import Event
 import re
@@ -28,6 +28,7 @@ from app.core.deck_schema import (
 from app.core.errors import SlideWriteError, ProviderLimitError
 from app.llm.structured import StructuredGenerator
 from app.pipeline.grounding import (
+    is_supported_paraphrase,
     unsupported_claim_categories,
     unsupported_investor_claim_categories,
     unsupported_specific_claim_categories,
@@ -115,11 +116,11 @@ placeholders instead of inventing specific evidence.
 For a product range and a shared set of matching dimensions, group the products
 and dimensions into separate lists. Do not generate a product-by-dimension
 matrix or imply an individual pairing unless the request states one.
-For numeric visualizations use only supplied values; mark illustrative data as
-illustrative only when the schema supports provenance. If the user requests a
-chart but supplies no numeric facts, use clearly generic example data, set its
-provenance to illustrative, and label the caption as an example to replace with
-company data. Do not use the deck's slide or chart counts as chart data. Pie and
+For numeric visualizations use only supplied values. Example figures require an
+explicit request for illustrative or sample data. Without that approval, use
+TBD statistics; for a chart set placeholder=true and zero values, with a caption
+requesting verified data. Those zeros are absence markers and are never plotted.
+Do not use the deck's slide or chart counts as chart data. Pie and
 doughnut charts must use non-negative values with a positive total. Keep content
 concise, readable, and consistent with the requested audience and tone."""
 
@@ -280,7 +281,7 @@ def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
         "stat": "Example metric",
         "process": "Process details",
         "comparison": "Comparison details",
-        "chart": "Illustrative chart",
+        "chart": "Chart inputs",
         "quote": "Supplied quotation",
     }
     title = plan.title
@@ -339,14 +340,14 @@ def _placeholder_slide(plan, facts: list[RequiredFact] | None = None) -> Slide:
             },
         ]
     elif plan.layout == "chart":
-        context = " ".join(fact_texts) or "the supplied company context"
         payload.update(
             {
                 "chart_type": "bar",
-                "categories": ["Example A", "Example B"],
-                "series": [{"name": "Example values", "values": [60, 40]}],
-                "caption": f"Illustrative example for {context}; replace with supplied company data.",
+                "categories": ["[Add category]", "[Add category]"],
+                "series": [{"name": "Values to supply", "values": [0, 0]}],
+                "caption": "[Supply verified values for these chart categories]",
                 "provenance": "illustrative",
+                "placeholder": True,
             }
         )
     elif plan.layout == "quote":
@@ -421,12 +422,67 @@ def _slide_text_content(slide: Slide) -> str:
     """Return visible text, including numeric fields rendered by specialized layouts."""
     slide_data = slide.model_dump(mode="json")
     slide_data.pop("speaker_notes", None)
+    if isinstance(slide, ChartSlide) and slide.placeholder:
+        slide_data.pop("series", None)
     leaves = _text_leaves(slide_data)
     if isinstance(slide, AskAllocationSlide):
         leaves.extend(
             f"{item.label} {item.pct:.2f}%" for item in slide.items if item.pct is not None
         )
     return "\n".join(leaves)
+
+
+def _guard_illustrative_data(slide: Slide, prompt: str) -> Slide:
+    """Missing numbers stay placeholders unless example data was explicitly requested."""
+    if re.search(
+        r"\b(?:illustrative|sample data|example (?:data|values)|fictional data)\b", prompt, re.I
+    ):
+        return slide
+    if isinstance(slide, ChartSlide) and slide.provenance == "illustrative":
+        return slide.model_copy(
+            update={
+                "placeholder": True,
+                "categories": [
+                    category
+                    if _numeric_values(category) <= _numeric_values(prompt)
+                    else "[Add category]"
+                    for category in slide.categories
+                ],
+                "series": [
+                    series.model_copy(update={"values": [0.0] * len(slide.categories)})
+                    for series in slide.series
+                ],
+                "caption": "[Add verified data for these categories]",
+            }
+        )
+    if isinstance(slide, StatSlide):
+        return slide.model_copy(
+            update={
+                "stats": [
+                    stat.model_copy(update={"value": "TBD", "context": "[Add a verified value]"})
+                    if stat.provenance == "illustrative"
+                    else stat
+                    for stat in slide.stats
+                ]
+            }
+        )
+    return slide
+
+
+def _label_inferred_workflow(slide: Slide, prompt: str) -> Slide:
+    if not isinstance(slide, (FlowStepsSlide, ProcessSlide)) or not re.search(
+        r"\b(?:brand|startup|company|our|we|fintech)\b", prompt, re.I
+    ):
+        return slide
+    details = [
+        getattr(step, "detail", None) or getattr(step, "description", None) for step in slide.steps
+    ]
+    inferred = any(detail and not is_supported_paraphrase(detail, prompt) for detail in details)
+    if inferred and not re.search(r"conceptual|suggested", slide.subtitle or "", re.I):
+        return slide.model_copy(
+            update={"subtitle": "Conceptual workflow details; confirm before use"}
+        )
+    return slide
 
 
 def _normalized_phrase(text: str) -> str:
@@ -509,6 +565,8 @@ def _numeric_data_issue(
     if isinstance(slide, StatSlide):
         data = [(stat.provenance, stat.value) for stat in slide.stats]
     elif isinstance(slide, ChartSlide):
+        if slide.placeholder:
+            return None
         data = [
             (slide.provenance, str(value)) for series in slide.series for value in series.values
         ]
@@ -671,6 +729,8 @@ def _write_one(
             temperature=0.3,
             max_tokens=max_tokens,
         )
+        slide = _guard_illustrative_data(slide, prompt)
+        slide = _label_inferred_workflow(slide, prompt)
         if (
             isinstance(slide, ClosingSlide)
             and slide.contact
@@ -748,6 +808,19 @@ def _write_one(
                     "generated slide included contact information not supplied in the request: "
                     f"{invented_contacts}"
                 )
+            if isinstance(slide, ClosingSlide):
+                source_words = _normalized_phrase(prompt)
+                for line in re.split(r"[\n\u2022]+", slide.subtitle or ""):
+                    action = _normalized_phrase(line)
+                    if re.match(
+                        r"^(?:join|follow|contact|book|schedule|sign up|subscribe|visit|"
+                        r"buy|shop|order|download|register|stay tuned|connect)\b",
+                        action,
+                    ):
+                        if action not in source_words:
+                            raise ValueError(
+                                "generated slide added unsupported details: closing action not supplied"
+                            )
             if _METADATA_LABEL_PATTERN.search(text_content):
                 raise ValueError(
                     "generated slide copied a brand metadata label into presentation text"
@@ -1006,8 +1079,9 @@ def _write_indices(
             raise
 
     with ThreadPoolExecutor(max_workers=min(max_workers, len(slide_indices))) as executor:
-        futures = {
-            executor.submit(
+
+        def submit(index):
+            return executor.submit(
                 write_unless_limited,
                 prompt,
                 analysis,
@@ -1020,18 +1094,33 @@ def _write_indices(
                 repair_instruction=(repair_instructions or {}).get(index),
                 accounting_stage=accounting_stage,
                 limit_event=limited,
-            ): index
-            for index in slide_indices
-        }
-        for future in as_completed(futures):
-            index = futures[future]
-            try:
-                results[index] = future.result()
-            except Exception as exc:
-                for pending in futures:
-                    pending.cancel()
-                if isinstance(exc, ProviderLimitError):
-                    raise
-                plan = outline.slides[index]
-                raise SlideWriteError(index, plan.title, str(exc)) from exc
+            )
+
+        # Submit only active work. Eagerly queueing every slide lets a worker
+        # start another API call before the main thread observes a failure.
+        indices = iter(slide_indices)
+        futures = {}
+        for _ in range(min(max_workers, len(slide_indices))):
+            index = next(indices)
+            futures[submit(index)] = index
+        while futures:
+            done, _ = wait(futures, return_when=FIRST_COMPLETED)
+            for future in done:
+                index = futures.pop(future)
+                try:
+                    results[index] = future.result()
+                except Exception as exc:
+                    limited.set()
+                    for pending in futures:
+                        pending.cancel()
+                    if isinstance(exc, ProviderLimitError):
+                        raise
+                    plan = outline.slides[index]
+                    raise SlideWriteError(index, plan.title, str(exc)) from exc
+            for _ in done:
+                if limited.is_set():
+                    break
+                index = next(indices, None)
+                if index is not None:
+                    futures[submit(index)] = index
     return results

@@ -113,9 +113,11 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
             safe_points = assigned_facts
 
         if (
-            re.search(r"\b(?:roadmap|timeline|growth plan|growth roadmap)\b", title, re.I)
-            and re.search(r"\b(?:growth|roadmap|timeline)\b", prompt, re.I)
-            and layout in {"bullets", "process"}
+            re.search(r"\b(?:roadmap|timeline|growth)\b", title, re.I)
+            and re.search(
+                r"\b(?:roadmap|timeline|quarterly growth|growth (?:plan|through))\b", prompt, re.I
+            )
+            and layout in {"bullets", "process", "chart", "stat", "two_column"}
         ):
             layout = "flow_steps"
         grounded_slides.append(
@@ -151,7 +153,13 @@ def _compact_duplicate_fact_plans(prompt: str, outline: OutlineOutput) -> Outlin
                 for other in outline.slides
             )
         )
-        if duplicate and len(outline.slides) - removed > 3:
+        empty_company_closing = (
+            plan.layout == "closing"
+            and not facts
+            and re.search(r"\b(?:company|brand|startup|our|we)\b", prompt, re.I)
+            and not re.search(r"\b(?:closing|call to action|CTA|thank.you)\b", prompt, re.I)
+        )
+        if (duplicate or empty_company_closing) and len(outline.slides) - removed > 3:
             removed += 1
             continue
         kept.append(plan)

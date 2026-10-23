@@ -303,7 +303,7 @@ def test_sparse_company_prompt_uses_placeholders_without_model_written_claims():
     ]
 
 
-def test_chart_placeholder_has_unique_title_and_positive_illustrative_values():
+def test_chart_placeholder_has_unique_title_and_zero_absence_markers():
     _, outline = _inputs()
     chart_plan = outline.slides[1].model_copy(
         update={"index": 3, "title": "Supplied Details", "layout": "chart"}
@@ -312,10 +312,11 @@ def test_chart_placeholder_has_unique_title_and_positive_illustrative_values():
     result = _placeholder_slide(chart_plan)
 
     assert isinstance(result, ChartSlide)
-    assert result.title == "Illustrative chart 4"
+    assert result.title == "Chart inputs 4"
     assert result.provenance == "illustrative"
-    assert result.caption and "replace with supplied company data" in result.caption
-    assert all(value > 0 for series in result.series for value in series.values)
+    assert result.caption and "Supply verified values" in result.caption
+    assert result.placeholder
+    assert all(value == 0 for series in result.series for value in series.values)
 
 
 def test_investor_slide_with_unsupported_claims_falls_back_to_placeholders():

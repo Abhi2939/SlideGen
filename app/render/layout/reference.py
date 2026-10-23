@@ -180,8 +180,8 @@ def render_ask_allocation(prs, data, theme: Theme):
         values = [item.pct if item.pct is not None else unknown_share for item in items]
     cx, cy, size = 7.25, 3.76, 2.55
     chart_data = CategoryChartData()
-    chart_data.categories = [item.label for item in items]
-    chart_data.add_series("Allocation", values)
+    chart_data.categories = [item.label for item in items] if complete else ["Allocation pending"]
+    chart_data.add_series("Allocation", values if complete else [100])
     chart = slide.shapes.add_chart(
         XL_CHART_TYPE.DOUGHNUT,
         Inches(cx - size / 2),
@@ -196,7 +196,9 @@ def render_ask_allocation(prs, data, theme: Theme):
     plot._element.find(qn("c:firstSliceAng")).set("val", "180")
     for index, point in enumerate(plot.series[0].points):
         point.format.fill.solid()
-        point.format.fill.fore_color.rgb = RGBColor.from_string(PALETTE[index % len(PALETTE)])
+        point.format.fill.fore_color.rgb = (
+            RGBColor.from_string(PALETTE[index % len(PALETTE)]) if complete else LINE
+        )
     hole = plot._element.find(qn("c:holeSize"))
     if hole is not None:
         hole.set("val", "66")
@@ -279,7 +281,7 @@ def render_ask_allocation(prs, data, theme: Theme):
             6.72,
             7.5,
             0.25,
-            "Unprovided shares are evenly sized for illustration.",
+            "Incomplete percentages: the grey ring is a placeholder.",
             size=9,
             color=MUTED,
             align=PP_ALIGN.CENTER,

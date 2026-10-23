@@ -124,6 +124,35 @@ def test_quota_during_writing_does_not_start_pending_slides():
     assert calls == ["write"]
 
 
+def test_nonquota_failure_does_not_start_another_slide_api_call():
+    from app.core.errors import SlideWriteError, StructuredOutputError
+    from app.pipeline.models import OutlineOutput
+    from app.pipeline.write_slides import write_slides
+
+    calls = []
+
+    class Generator:
+        def generate(self, *args, **kwargs):
+            calls.append(kwargs["stage"])
+            raise StructuredOutputError("write", 2, "response did not match the required schema")
+
+    analysis = AnalysisOutput(deck_title="Dogs", deck_type="education", slide_count=3)
+    outline = OutlineOutput(
+        deck_title="Dogs",
+        slides=[
+            {"index": i, "layout": layout, "title": title, "purpose": "Explain"}
+            for i, (layout, title) in enumerate(
+                [("title", "Dogs"), ("bullets", "Care"), ("closing", "Summary")]
+            )
+        ],
+    )
+    with pytest.raises(SlideWriteError):
+        write_slides(
+            "Make a deck about dogs", analysis, outline, Generator(), "fake", max_workers=1
+        )
+    assert calls == ["write"]
+
+
 def test_job_fails_on_limit_before_another_inflight_call_finishes(tmp_path, monkeypatch):
     started = threading.Event()
     release = threading.Event()

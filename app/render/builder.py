@@ -51,10 +51,12 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
         try:
             with asset_scope(assets):
                 slide = renderer(prs, data, theme)
-        except Exception:
+        except Exception as exc:
             if strict:
                 raise
-            log.exception("layout %r failed, using fallback", data.layout)
+            log.warning(
+                "layout %s failed, using fallback (type=%s)", data.layout, type(exc).__name__
+            )
             _drop_slides_after(prs, count)
             slide = _fallback(prs, data, theme)
 

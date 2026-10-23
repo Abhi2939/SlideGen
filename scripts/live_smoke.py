@@ -44,6 +44,7 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
             counts = {}
             reviews = []
             print(f"Starting {index}/{len(PROMPTS)}: {name}", flush=True)
+            succeeded = False
             try:
                 deck = generate(
                     prompt,
@@ -59,6 +60,7 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
                     (output_dir / f"{index:02d}-{name}.json").write_text(
                         deck.model_dump_json(indent=2), encoding="utf-8"
                     )
+                succeeded = True
             except Exception as exc:
                 print(f"Stopped at {name}.")
                 print("Token usage (reported calls only): " + json.dumps(counts))
@@ -89,6 +91,18 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
                             print("Safe failure reason: " + cause.reason)
                         cause = cause.__cause__
                 return 1
+            finally:
+                (output_dir / f"{index:02d}-{name}-check.json").write_text(
+                    json.dumps(
+                        {
+                            "result": "completed" if succeeded else "failed",
+                            "tokens": counts,
+                            "reviews": reviews,
+                        },
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
             completed.append(name)
             print(
                 f"Completed {name}: {len(deck.slides)} slides; layouts: "

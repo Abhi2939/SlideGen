@@ -6,14 +6,17 @@ import re
 UNSUPPORTED_CLAIM_PATTERNS = {
     "unsupported product specifications": re.compile(
         r"\b(?:easy integration|affordable pricing|24/7 support|round[- ]the[- ]clock support|"
-        r"join our beta|subscribe to updates)\b",
+        r"join our beta|subscribe to updates|user[- ]friendly interface|"
+        r"automated risk scoring|instant fund disbursement|instant funding|"
+        r"questionnaire|visual guide|undertone identification)\b",
         re.I,
     ),
     "unsupported calls to action": re.compile(
         r"\b(?:follow us|follow (?:our|us on)|join (?:our|the) community|"
         r"book (?:a|your) (?:demo|call|consultation)|schedule (?:a|your) (?:demo|call)|"
         r"download (?:our|the) app|visit our|shop now|buy now|order now|"
-        r"join (?:our|the) waitlist|stay tuned|ready to launch)\b",
+        r"join (?:our|the) waitlist|stay tuned|ready to launch|"
+        r"sign up for early access|contact sales|sales demo)\b",
         re.IGNORECASE,
     ),
     "unsupported product benefit or guarantee": re.compile(
@@ -53,6 +56,8 @@ UNSUPPORTED_CLAIM_PATTERNS = {
         re.IGNORECASE,
     ),
     "unsupported market or consumer behavior": re.compile(
+        r"\b(?:large addressable market|significant SME base|growing demand|rising demand|"
+        r"increasing adoption)\b|"
         r"\b(?:consumers?|customers?)\s+(?:often|frequently|typically|usually)\b|"
         r"\bmarket\s+(?:size|share|demand|growth)\b|"
         r"\bresearch\s+(?:shows|suggests|finds)\b|"
@@ -79,6 +84,8 @@ UNSUPPORTED_CLAIM_PATTERNS = {
 }
 
 _TIER3_MARKET_PATTERN = re.compile(
+    r"\b(?:large addressable market|significant SME base|growing demand|rising demand|"
+    r"increasing adoption)\b|"
     r"\bmarket\s+(?:size|share|demand|growth)\b|"
     r"\bresearch\s+(?:shows|suggests|finds)\b",
     re.IGNORECASE,
@@ -104,10 +111,12 @@ _UNSUPPORTED_INVESTOR_PATTERNS = {
     ),
     "unsupported pricing or go-to-market details": re.compile(
         r"\b(?:freemium|free trial|pilot program|channel partners?|direct sales|"
-        r"revenue model|revenue breakdown|subscription pricing|per[- ]seat|"
+        r"revenue model|revenue breakdown|subscription(?:[- ]based)? pricing|per[- ]seat|"
+        r"tiered plans|upsell|add[- ]on services|audit support|"
         r"transaction fee|pricing tier|go[- ]to[- ]market strategy)\b",
         re.IGNORECASE,
     ),
+    "unsupported funding allocation": re.compile(r"\b(?:funds for|use of funds)\b", re.I),
     "unsupported market evidence or traction": re.compile(
         r"\b(?:growing demand|rising demand|large (?:accounting firm )?base|"
         r"large number of accounting firms|market opportunity|rapidly growing market|"
@@ -232,7 +241,9 @@ def unsupported_investor_claim_categories(text: str, source_text: str) -> list[s
 
 _SPECIFIC_PATTERNS = {
     "pricing": re.compile(
-        r"\b(?:freemium|subscription pricing|per[- ]seat|pricing tiers?|plans start at)\b", re.I
+        r"\b(?:freemium|subscription(?:[- ]based)? pricing|per[- ]seat|pricing tiers?|plans start at|"
+        r"tiered plans|upsell|add[- ]on services|audit support)\b",
+        re.I,
     ),
     "traction": re.compile(
         r"\b(?:paying customers|enterprise customers|strong adoption|customer traction|profitable|monthly revenue)\b",

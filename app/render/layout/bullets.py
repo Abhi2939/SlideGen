@@ -46,6 +46,16 @@ def render(prs, data, theme):
     used_h = sum(hs) + gap * (n - 1)
     y = BODY_TOP + max(0, (BODY_H - used_h) // 2)
     for b, h in zip(data.bullets, hs):
+        if n <= 3:
+            add_rect(
+                slide,
+                MARGIN_X - Inches(0.12),
+                y - Inches(0.14),
+                CONTENT_W + Inches(0.24),
+                h + Inches(0.28),
+                theme.surface,
+                MSO_SHAPE.ROUNDED_RECTANGLE,
+            )
         marker_y = y + (fit.line_height(size) - MARKER) // 2
         add_rect(slide, MARGIN_X, marker_y, MARKER, MARKER, theme.accent, MSO_SHAPE.OVAL)
 

@@ -18,6 +18,10 @@ from app.llm.usage import record_usage
 BLUSH = "My startup makes custom foundation, lipstick, and skincare products matched to skin tone, undertone, and style. Make a short presentation."
 DOGS = "Make a deck about dogs"
 INVENTED = (
+    "We use automated risk scoring and instant fund disbursement.",
+    "Our matching uses a questionnaire and visual guide.",
+    "We offer subscription-based pricing and tiered plans.",
+    "We upsell add-on services such as audit support.",
     "Our market share is 99%.",
     "Competitors include Globex and Initech.",
     "Plans start at $29 per month.",
