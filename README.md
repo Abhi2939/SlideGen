@@ -4,7 +4,7 @@ SlideGen turns a natural-language prompt into a structured presentation, reviews
 
 **Live demo:** [slidegen-edz9.onrender.com](https://slidegen-edz9.onrender.com/)
 
-Implementation status (2026-10-22): `main` is pushed through **`d21d769`**, including the Blush source-name and visible-content fix in **`b5ba759`**. Latest recorded checks: **260 offline tests passed**, Ruff lint/format (61 files), and `git diff --check`. The supplied Blush deck and a corrected five-slide fake-pipeline preview were inspected with LibreOffice/PyMuPDF. The active Render revision, `/healthz`, a fresh live Blush result, and real PowerPoint remain unchecked.
+Implementation status (2026-10-23): reference styling now extends to generic layouts, and an optional cached asset stage resolves icons, prompt-named competitor logos, and Pexels photos before deterministic rendering. Content guards reject unsupported CTAs and allow fewer fuller slides when no exact count was requested. The original 260-test checkpoint is historical; current results and live limitations are recorded below. LibreOffice inspection does not replace real PowerPoint or client acceptance.
 
 ## Current project scope
 
@@ -13,6 +13,7 @@ Implementation status (2026-10-22): `main` is pushed through **`d21d769`**, incl
 - Write slides concurrently with a configurable worker limit.
 - Review generated content and selectively regenerate slides with findings.
 - Render fourteen layouts: title, section, bullets, two-column, stat, process, comparison, chart, quote, closing, ask/allocation, market snapshot, workflow steps, and quadrants.
+- Resolve optional visual assets into the shared deck contract, with source notes and a disk cache; rendering never fetches URLs.
 - Save the result as a `.pptx` file or submit an asynchronous web job and download it in the browser.
 
 The web app stores jobs and generated files in SQLite and uses a bounded in-process worker pool. See [Deploy](#deploy) for a public service setup.
@@ -95,17 +96,17 @@ The CLI sends prompts to the configured LLM provider. Generation can fail if the
 
 ## Prompt handling
 
-SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, the analysis stage treats it as a general product introduction rather than assuming an investor pitch. It uses supplied product details as source facts and directs the outline, writing, and review stages to avoid adding unsupported statistics, capabilities, outcomes, business scope, or business details. Analysis removes unsupported numeric and common commercial claims from its fact inventory. Requests without an explicit slide count use at least the four-slide concise-brief default. The writer retries numeric claims not present in the analyzed facts and common unsupported claims about products, operations, reach, strategy, and company capabilities. If a company prompt supplies no specific facts, SlideGen uses explicit placeholders and illustrative charts; provide concrete product, market, and operating details for a finished company-specific deck.
+SlideGen can work from a short brand or product description. When the prompt does not specify an audience or deck type, analysis treats it as a general product introduction rather than assuming an investor pitch. Broad educational prompts target six to eight substantive slides; short company briefs target four to six, and the planner may use fewer while preserving every required fact. Explicit counts remain exact. Growth/roadmap content uses a visual workflow without fabricated dates or targets. Unsupported CTAs, benefit claims, numeric values and company specifics are rejected or replaced with explicit placeholders. A company-specific finished deck needs source facts; missing evidence must not be disguised as generated proof.
 
 For investor pitches, asking for a seed-investor audience does not establish product features, integrations, workflows, pricing, traction, founder experience, valuation, runway, or a funding amount. The writer is instructed to use placeholders for those details when the prompt omits them. If the reviewer still finds high-severity unsupported claims after its rewrite rounds, the pipeline replaces those slides with explicit placeholders that preserve facts assigned to the slides, then reviews the deck again. Supply verified details for a more complete pitch.
 
-Named beauty briefs use conservative source-name extraction: "Blush is a custom beauty brand offering foundation..." identifies Blush, not "Offering Foundation." Brand recognition selects the title and theme without replacing the analyzed fact inventory or forcing four slides. Beauty briefs now use the normal outline stage; supplied launch channels and later growth activities need visible content slides and remain plans rather than achieved results. This restores an outline request for briefs that previously bypassed that stage; its live token cost has not been measured.
+Named beauty briefs use conservative source-name extraction: "Blush is a custom beauty brand offering foundation..." identifies Blush, not "Offering Foundation." Brand recognition selects the title and theme without replacing the analyzed fact inventory or forcing four slides. Beauty briefs use the normal outline stage; supplied launch channels and later growth activities need visible content slides and remain plans rather than achieved results. In one full Blush run the outline stage reported 2,608 tokens; this is one observation, not a general cost or savings estimate.
 
-Required facts cannot be satisfied by speaker notes alone. Writer checks exclude notes before and after restoring verbatim facts, and the review payload contains visible slide fields only. The Blush theme uses Calibri, wider text covers, larger short bullet lists, and flat two-column content; covers no longer repeat the decorative product drawing or its clipped labels. No photos, logos, or new brand assets were added.
+Required facts cannot be satisfied by speaker notes alone. Writer checks exclude notes before and after restoring verbatim facts, and the review payload contains visible slide fields only. Blush shares the reference family's Calibri, navy/green palette, white cards and title placement. Optional assets use the separate stage described below. Company workflow details inferred beyond source wording receive a visible conceptual-workflow label.
 
 The slide writer also checks generated text for email addresses and URLs that were not supplied, and for copied metadata labels such as `Startup name`. A match triggers a retry; if the slide still contains it, generation fails rather than accepting that text.
 
-Deck-format directions such as slide count and requested layouts are treated as instructions, not slide facts. The writer retries when generated copy repeats those directions or describes the deck's own slide and visual counts. If charts or figures are requested without numeric source data, charts use example values marked as illustrative and identified as replaceable. The outline must include the chart and at least one additional visual slide.
+Deck-format directions such as slide count and requested layouts are treated as instructions, not slide facts. The writer retries when generated copy repeats those directions or describes the deck's own slide and visual counts. If charts or figures are requested without numeric source data, charts show editable missing-data placeholders and do not plot invented example values. Illustrative figures require an explicit request for sample/illustrative data. The outline must include the chart and at least one additional visual slide.
 
 ## Run the web app locally
 
@@ -119,7 +120,7 @@ Open <http://127.0.0.1:8000>. The job database and presentations are written und
 
 The API accepts `POST /api/jobs` with `{"prompt": "..."}`, returns an ID and status, and serves the current stage and queue position from `GET /api/jobs/{id}`. Download completed jobs from `GET /api/jobs/{id}/download`. `GET /healthz` is the public health check.
 
-For a confirmed temporary per-minute limit, the app waits for Groq's numeric `retry-after` value (up to 60 seconds) and retries only the interrupted call, at most twice. Completed slides are retained, and the browser shows the waiting stage. Daily quotas, requests larger than the provider's limit, unknown limit types, missing/invalid wait times, and exhausted retries stop with "The AI provider's daily or rate limit was reached. Please try again later." Waits respect the job deadline. SDK retries remain disabled. Safe logs identify the stage, model, limit type, numeric limit/used/requested counts, and allowlisted remaining-budget headers without exposing raw errors, prompts, or credentials. Other failures show a generic error. Check the terminal running Uvicorn for the job's traceback; when final review fails, the log also includes the review findings. The API keeps this detail out of the user-facing error.
+For a confirmed temporary per-minute limit, the app waits for Groq's numeric `retry-after` value (up to 60 seconds) and retries only the interrupted call, at most twice. Completed slides are retained, and the browser shows the waiting stage. Daily quotas, requests larger than the provider's limit, unknown limit types, missing/invalid wait times, and exhausted retries stop with "The AI provider's daily or rate limit was reached. Please try again later." Waits respect the job deadline. SDK retries remain disabled. Safe logs identify the stage, model, limit type, numeric limit/used/requested counts, and allowlisted remaining-budget headers without exposing raw errors, prompts, or credentials. Other failures show a generic error. Terminal job diagnostics retain allowlisted status/code/reason fields and review counts, without tracebacks, raw review copy, slide titles or request text. Slide scheduling submits only active work and stops submitting new slides after any failure; an already running request cannot be cancelled.
 
 ### Linux and macOS
 
@@ -153,7 +154,7 @@ Live Render service: <https://slidegen-edz9.onrender.com/>.
 4. Apply the Blueprint and wait for `/healthz` to pass.
 5. Open the service URL, submit a test prompt, and download the resulting PowerPoint.
 
-For the current fixes, confirm Render's active deployment includes `d21d769` (which includes `b5ba759`), then open `/healthz` and expect HTTP 200. Check the actual service environment against `render.yaml`; these values are already supplied by the Blueprint:
+For the current fixes, compare Render's deployed Git commit with `git rev-parse origin/main` after fetching the latest pushed checkpoints. Open `/healthz` and expect HTTP 200 with `{"ok": true}`. Check the actual service environment against `render.yaml`; these values are supplied by the Blueprint:
 
 ```dotenv
 SLIDEGEN_LLM_PROVIDER=groq
@@ -173,6 +174,9 @@ The Blueprint uses a paid Render web plan because Render persistent disks are av
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `GROQ_API_KEY` | Required | Private credential used for generation. |
+| `SLIDEGEN_ASSETS_ENABLED` | `true` | Resolve optional icons/logos/photos before rendering. |
+| `SLIDEGEN_ASSET_CACHE_DIR` | `<data dir>/assets` | Render uses `/var/data/assets`; downloaded images and manifests stay local. |
+| `PEXELS_API_KEY` | Optional | Enables topic-based Pexels photo searches; missing keys keep shape fallbacks. Never print the key. |
 | `SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER` | `false` locally; `true` on Render | Use `CF-Connecting-IP` for Render rate limiting; malformed or missing values share a safe fallback limit bucket. |
 | `SLIDEGEN_DATA_DIR` | `./data` | Directory for SQLite and deck files; Render uses `/var/data`. |
 | `SLIDEGEN_MAX_JOBS` | `1` | Concurrent generation workers. |
@@ -201,8 +205,9 @@ Copy `.env.example` for local configuration. It contains placeholders only; neve
 
 ## Limitations and design decisions
 
-- SlideGen uses Groq for generation and does not retrieve or cite external sources. Review checks the generated deck against the prompt; it is not independent fact-checking.
-- Numeric data invented for a chart or statistic must be marked illustrative. Avoid prompts that require current market or financial figures unless the source values are supplied.
+- SlideGen uses Groq for generation and does not retrieve external factual research. Review checks the generated deck against the prompt; it is not independent fact-checking. Asset source notes describe images, not evidence for claims.
+- Missing numeric data defaults to placeholders. Illustrative chart/statistic figures require an explicit request and provenance labels. Supply verified market or financial values.
+- A passed model review is insufficient for client acceptance: live manual QA found unsupported details after a pass. The final guards are verified offline, with a post-guard live rerun still required.
 - There is no in-browser editor, collaboration, account system, or image generation. The public job API uses per-IP rate limits and a bounded queue, not user authentication.
 - The job queue and request limiter are in process. Run one Render instance with its persistent disk attached.
 - The 900-second job deadline marks a job failed at the deadline, but a provider request already in progress cannot be interrupted; its worker can remain occupied until the request times out.
@@ -231,7 +236,21 @@ print(output_path)
 2. **Outline** creates a slide-by-slide plan with a purpose, supported layout, key points, and required-fact references. During review, the original request and its required facts remain the source of truth; unsupported outline points do not become requirements.
 3. **Write** generates typed slide content. Slide calls run concurrently, subject to `max_workers` (default `1`), and output order follows the outline. The original request and assigned facts are the evidence source; outline key points only organize that evidence. Generated email addresses and URLs must also appear in the original request.
 4. **Review and repair** checks for missing facts, duplicates, unsupported claims, likely overflow, and coherence. It removes exact duplicate bullets when possible, regenerates flagged slides up to `max_repair_rounds`, and replaces persistent high-severity unsupported claims with placeholders before a final review.
-5. **Validate and render** validates the final deck against the shared schema and creates the `.pptx`.
+5. **Validate** validates the final deck against the shared schema.
+6. **Resolve visual assets** fetches optional images with a 20-second total budget, four workers, a 6-second request budget, and a disk cache. Failures fall back to shapes/text. The renderer consumes only the resolved local files in `Deck.assets`.
+7. **Render** creates the editable `.pptx`; images retain source/photographer/terms in notes.
+
+## Visual assets and source terms
+
+Icons come from the Lucide collection through Iconify and map step keywords such as KYC, payments, invoices and funding to icons. Lucide uses ISC, with Feather-derived icons such as `circle` and `check` under MIT; the notices are included in slide notes. See [Lucide's licence](https://lucide.dev/license). `resvg-py` provides SVG-to-PNG conversion under MIT. Native text, tables, allocation charts, cards and workflows remain editable PowerPoint objects.
+
+Photos use the [Pexels API](https://www.pexels.com/api/documentation/) and [Pexels License](https://www.pexels.com/license/). Queries use a deck-topic mapping rather than raw user prompts. Photos appear on covers and allocation hero/edge areas when a key is configured; credit and a Pexels link appear on the slide, with photographer/source/terms in notes and the cache manifest. Stock photos are illustrative and do not imply endorsement. No Pexels key was available for the local QA session; photo retrieval is covered by fake HTTP tests, not real photo evidence. Unsplash and logo.dev are not used and need no keys.
+
+Competitor logos use [Simple Icons](https://github.com/simple-icons/simple-icons), only for exact names supplied in the original prompt and only in competitive quadrants. Missing logos remain clean text chips. The collection uses CC0, but [individual brand licences and trademark rights still apply](https://github.com/simple-icons/simple-icons/blob/develop/DISCLAIMER.md); inclusion is not endorsement or trademark clearance. Real fixture retrieval succeeded for Visa, Polygon and WazirX; other fixture names fell back to chips. Live Acme Pay supplied no competitor names, so its grid correctly contains placeholders.
+
+The downloader allowlists four HTTPS hosts, validates all DNS results and pins the connection to a public IP with the original TLS SNI. Redirects, private/local addresses, files over 5 MiB, oversized decoded images, incorrect MIME types and SVG external resources are rejected. Images are checked with Pillow and downscaled to at most 1600×1200; SVG icons are 256×256. The cache is pruned to a 128 MiB budget before each resolution run, including manifests; newly downloaded files can temporarily add to this until the next run. Asset timeout workers may finish caching after the resolution budget, but rendering proceeds without waiting for them. Keep assets and manifests out of Git.
+
+Manual reference-asset QA: `python scripts/asset_preview.py`, then render its decks with `python -m evals.qa_render`. These are deterministic fixtures, not LLM generation evidence. Local sources are recorded in `outputs/qa/client-ready/asset-sources.json` and cache manifests. No reference screenshots are pasted into decks.
 
 Structured output is validated at each LLM stage. Invalid structured responses receive bounded retries. Groq's HTTP 400 `json_validate_failed` and `output_parse_failed` errors receive bounded JSON-correction retries. Recovery attempts use native strict JSON schemas for the configured `openai/gpt-oss-20b` and `openai/gpt-oss-120b` models, with low reasoning effort and the same completion-token limit; normal first attempts keep their existing reasoning effort. Other Groq models retain JSON-object recovery. Schema preparation follows [Groq structured-output requirements](https://console.groq.com/docs/structured-outputs) and the [GPT-OSS reasoning options](https://console.groq.com/docs/reasoning). Pydantic and grounding/review checks still validate every result. Quota, authentication, unrelated HTTP 400, and other provider failures are not retried by this loop. The review repair path removes exact duplicate bullets reported by review, including duplicates across two-column slides, and can fall back to placeholders for persistent high-severity unsupported claims. If the final review still fails, `generate_deck()` raises `DeckReviewError` instead of returning a deck that failed QA. Review requests now label each slide with its explicit zero-based index and narrow the prompt JSON schema to the current deck's slide indices and required fact IDs. Reference IDs are checked before findings are filtered. Bounded correction requests include the exact allowed IDs and the rejected review; persistent invalid references still fail generation rather than being discarded or guessed.
 
@@ -241,7 +260,7 @@ The four reference-specific layouts are `ask_allocation`, `market_snapshot`, `fl
 
 ## Tests
 
-Implementation checkpoint `d21d769` includes reference-layout QA, quota/token accounting, sparse-prompt safeguards, review-reference correction (`82f2dfd`), provider parse recovery (`874674e`), Blush source-name/visible-content correction (`b5ba759`), and Blush typography/QA (`d21d769`). The Render revision and live generation after the latest fixes have not been checked. Owner-supplied deployment logs show startup and accepted jobs, followed by review and analysis failures; startup alone does not establish generation success.
+The earlier `d21d769`/260-test checkpoint is historical. Current asset resolution, reference/generic styling and guardrail checkpoints are descendants. Fake job regressions cover out-of-range review references and analysis `output_parse_failed` recovery through saved PowerPoints. Owner-supplied production failures still require deployed-prompt confirmation; startup and accepted jobs alone do not establish generation success.
 
 Install development dependencies with `python -m pip install -r requirements-dev.txt`, then run the suite from the project root:
 
@@ -253,7 +272,11 @@ Run `ruff check .` and `ruff format --check app tests` for lint and format check
 
 The tests cover configuration, schema validation, structured-output retries, pipeline stages, targeted repairs, orchestration, PowerPoint rendering, job persistence, restart recovery, and the FastAPI flow, including queue limits and rate limiting. They use fake LLM responses and do not require a live API key.
 
-Latest local verification (2026-10-23): **276 tests passed**; Ruff lint, format (**63 files**), and `git diff --check` passed. A separate manual live run reproduced a writing-stage TPM rejection: limit 8,000, used 7,991, requested 2,627, with a 20-second retry-after. Both configured models accepted small key-validation calls. With bounded minute-limit recovery, the same eight-slide seed-investor prompt completed writing, review, two repair rounds, validation, and PowerPoint generation at `outputs/live-smoke/rate-limit-recovery.pptx`. Logs showed minute-limit waits and successful resumptions during writing and repair. This verifies local recovery with the configured key; Render deployment, the owner's exact failing prompt, visual inspection of this test deck, and real PowerPoint remain unchecked. Automated tests use fakes, including bounded retries, daily/unknown/oversized limits, deadlines, cancellation, and sanitized logging.
+Latest local verification (2026-10-23, implementation `67594e6`): **345 offline tests passed**; `ruff check .`, `ruff format --check app tests` (**71 files**), and `git diff --check` passed. The actual start-of-task baseline was 276 tests. Fake HTTP tests cover cache hits, missing keys, timeout, byte/MIME limits, blocked hosts/private DNS, no-logo text fallback and an image-embedded saved PowerPoint. Provider tests use fakes, including bounded retries, daily/unknown/oversized limits, deadlines, cancellation and sanitized logging.
+
+Real Groq execution completed all five ordered smoke prompts and a separate full Blush prompt under `outputs/live-smoke/client-ready-latest/`. All 31 smoke slides and five full-Blush slides were rendered and inspected with LibreOffice/PyMuPDF. These runs preceded final guard changes: manual inspection found unsupported Acme features/market assertions, invented illustrative chart values, investor commercial/funding details, and Blush closing actions. The full Blush deck retained its name, products and three launch actions but used a chart-data placeholder for growth. The subsequent offline fixes route growth to workflow, reject the observed unsupported content, suppress fact-free company closings and default missing numbers to placeholders. A last full-Blush live attempt failed during writing and then reached the daily cap (198,801/200,000 used; 2,315 requested). No final-code live pass is claimed. Two numeric-placeholder QA decks are offline postprocessing of previous live JSON, not new live generations.
+
+The owner's newer eight-slide file `ca1ed7ea1bbf4546add843983ff1406b.pptx` was unavailable locally, so its slides 3 and 8 could not be inspected. The available older four-slide file was rendered in `outputs/qa/blush-live/`, with defects recorded there. The deployed commit/environment/disk and real PowerPoint remain unverified. A direct health request timed out; this does not establish a deployment failure.
 
 Previous local verification (2026-10-22): **260 tests passed**; Ruff lint, format (**61 files**), and `git diff --check` completed successfully. Offline checks cover reference-layout geometry, quota failures, token counting, smoke-script ordering/stop behavior, adversarial sparse prompts, the exact supplied Blush launch/growth prompt, and notes-only missing facts. LibreOffice/PyMuPDF PNGs of the reference fixture, dense fixtures, and existing Acme Pay deck were inspected against the four references in the earlier QA pass. The owner's four-slide Blush file was then rendered and all slides/notes inspected: its name was wrong, its source sentence was broken, and the launch/growth plan appeared only in closing notes. All five slides of a corrected fake-pipeline preview were rendered and inspected under `outputs/qa/blush-correction/`; this is offline fixture evidence, not a fresh Groq result. Photos, logos, icons, market evidence, and competitor identities remain absent or placeholders. The deployed revision, `/healthz`, live behavior after these corrections, and real PowerPoint remain unchecked.
 
@@ -269,9 +292,9 @@ After confirming the key and available quota, run explicitly:
 python scripts/live_smoke.py
 ```
 
-The script runs Acme Pay, product launch, Blush-style, dogs, and the seed-investor prompt in order, one at a time. It saves decks in `outputs/live-smoke/`, prints completed prompt names, token totals, slide counts, layouts, and review findings, and exits non-zero on failure. It stops at the first quota/rate-limit error. Its control flow was tested with fakes; no live smoke run was performed in this checkpoint.
+The script runs Acme Pay, product launch, Blush-style, dogs, and the seed-investor prompt in order, one at a time. It saves decks and per-prompt result/token/review JSON in `outputs/live-smoke/`, prints local review evidence, and exits non-zero on failure. It stops at the first quota/rate-limit error. The successful local sequence produced 6, 6, 5, 6 and 8 slides; this establishes runtime completion, not content acceptance. The subsequent full Blush run produced five slides. Re-run after quota resets and review the actual decks after the final guards.
 
-Token-saving options were not applied: analysis/review already default to the smaller configured 20b model; existing stage model overrides permit other Groq choices. The Python/CLI `max_repair_rounds` option can reduce rewrite cost while retaining final review (possibly producing more failed jobs). A shorter review context would require a separate change and grounding evaluation. There are no measured live token savings yet. Estimate savings from counts: one omitted repair round removes its rewritten-slide tokens plus one full review; shrinking review input by 25% would remove about 25% of review input tokens, not total deck tokens.
+Token-saving options were not applied: analysis/review already default to the smaller configured 20b model; evaluating a smaller review model needs a factual-regression comparison and may miss errors. A compact review payload could omit redundant schema/outline prose while retaining the original prompt, fact inventory and every visible slide; test factual recall before enabling it. The Python/CLI `max_repair_rounds` option can reduce rewrite cost while retaining final review, with more failed jobs as a tradeoff. There are no measured savings from these proposals. One full Blush run reported 22,526 tokens (outline 2,608, review 3,390); the eight-slide investor run reported 81,578, including 41,781 repair tokens. These are individual observations. Removing a repair round saves its rewrites plus a review; shrinking review input by 25% saves about 25% of review input, not total job tokens.
 
 ## Visual QA
 
@@ -294,12 +317,13 @@ The `.pptx`, `.pdf`, and PNG outputs are written under `outputs/qa/` (override w
 
 The corrected local Blush preview is `outputs/qa/blush-correction/blush-launch-offline.pptx`; its five PNGs are under `outputs/qa/blush-correction/blush-launch-offline/`. It was produced with fake stage responses through the real pipeline and renderer. Its five-slide sequence is fixture data, not a fixed production template or a live-provider result. These generated files remain ignored and are not included in Git.
 
-`tests/test_reference_geometry.py` checks slide bounds and nonempty text-region overlaps (including table cells) for minimum, typical, and maximum fixture content. These checks require neither an LLM nor LibreOffice; they do not prove glyph fit or reference similarity. Reference layouts share a Calibri theme, fitted text, muted placeholders, a table height cap, and workflow spacing for the actual 3-8 supplied steps. Workflows are no longer padded to eight stages. Dense eight-step descriptions can shrink to 7 pt, and highly concentrated allocations still have crowded leader tracks. Check those cases in real PowerPoint; the geometry checks do not prove visual acceptance.
+`tests/test_reference_geometry.py` checks slide bounds and nonempty text-region overlaps (including table cells) for minimum, typical, and maximum fixture content. These checks require neither an LLM nor LibreOffice; they do not prove glyph fit or reference similarity. Final reference, dense and generic fixtures are under `outputs/qa/client-ready/`; real live renders are under `outputs/qa/client-ready-latest/`. All four source screenshots were viewed separately and compared with rendered fixtures. Final dense eight-step workflow text stays at or above 9 pt with wider alternating cards. Allocation uses source proportions and a centered icon/label, but concentrated small slices still crowd the leader tracks. Market hero cards, driver-table styling and timeline chips, and quadrant pills/logo/text grids share the reference family. Missing photography, partial logo coverage and an inset allocation panel remain visual gaps. No pixel-match or client-acceptance claim is made. Real PowerPoint inspection remains required.
 
 ## Project structure
 
 ```text
 app/
+  assets/                   Bounded cached image resolution and source manifests
   config.py                 Environment-backed provider and model settings
   main.py                   FastAPI app factory and server entry point
   api/                      Request models and job routes
