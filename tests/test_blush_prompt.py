@@ -67,9 +67,9 @@ SLIDES = (
         "bullets": [{"text": text[0].upper() + text[1:]} for text in FACT_TEXTS[7:10]],
     },
     {
-        "layout": "bullets",
+        "layout": "flow_steps",
         "title": "Quarterly growth plans",
-        "bullets": [{"text": text[0].upper() + text[1:]} for text in FACT_TEXTS[11:16]],
+        "steps": [{"title": text[0].upper() + text[1:]} for text in FACT_TEXTS[11:16]],
     },
     {
         "layout": "closing",

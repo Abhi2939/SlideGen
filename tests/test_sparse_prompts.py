@@ -65,7 +65,7 @@ class SparseProvider:
             brief = json.loads(messages[1]["content"].split("ANALYZED BRIEF:\n")[1])
             assert len(brief["required_facts"]) == (1 if self.prompt == BLUSH else 0)
             assert all(f["text"] != self.claim for f in brief["required_facts"])
-            assert brief["slide_count"] == DEFAULT_SLIDE_COUNT
+            assert brief["slide_count"] == (6 if self.prompt == DOGS else DEFAULT_SLIDE_COUNT)
             return json.dumps(
                 {
                     "deck_title": "Introduction",

@@ -8,13 +8,16 @@ from app.pipeline.models import AnalysisOutput, OutlineOutput, validate_outline_
 
 
 OUTLINE_SYSTEM_PROMPT = """You are the outline stage of a presentation generator.
-Create a clear sequence of slides for the supplied deck brief. Return exactly
-the requested number of slides, indexed from 0. Slide 0 must use the title
+Create a clear sequence of slides for the supplied deck brief. Respect an explicit
+requested slide count exactly. Otherwise the analyzed count is a target: return
+fewer slides if needed to avoid padding, retaining every required fact and at least
+three slides. Prefer fewer, fuller slides over a slogan, duplicated quiz/demo
+content, or an unsupported closing CTA. Index slides from 0. Slide 0 must use the title
 layout and its title must equal deck_title. Use only supported layouts:
 title, section, bullets, two_column, stat, process, comparison, chart, quote,
 closing, ask_allocation, market_snapshot, flow_steps, quadrants. Route a funding
 ask or budget split to ask_allocation; market size, growth, segments, and drivers
-to market_snapshot; a conceptual user journey or ordered workflow to flow_steps;
+to market_snapshot; a conceptual user journey, roadmap, growth plan or ordered workflow to flow_steps;
 and a competitor or ecosystem landscape to quadrants with exactly four groups.
 Choose layouts by content, not slide order. Assign every required fact ID to one or more relevant slides; do not
 omit or invent IDs. Use key_points to guide later slide writing. Choose layouts
@@ -104,6 +107,12 @@ def _ground_outline(prompt: str, analysis: AnalysisOutput, outline: OutlineOutpu
             ]
             safe_points = assigned_facts
 
+        if (
+            re.search(r"\b(?:roadmap|timeline|growth plan|growth roadmap)\b", title, re.I)
+            and re.search(r"\b(?:growth|roadmap|timeline)\b", prompt, re.I)
+            and layout in {"bullets", "process"}
+        ):
+            layout = "flow_steps"
         grounded_slides.append(
             plan.model_copy(
                 update={
@@ -369,7 +378,19 @@ def create_outline(
             grounded_outline = _route_investor_product_facts(
                 clean_prompt, analysis, grounded_outline
             )
-            validate_outline_facts(analysis, grounded_outline)
+            # A target count must not force filler when the source is sparse.
+            # Explicit user counts remain exact, including covers and closings.
+            from app.pipeline.analyze import _EXPLICIT_SLIDE_COUNT_PATTERN
+
+            validation_analysis = analysis
+            if (
+                not _EXPLICIT_SLIDE_COUNT_PATTERN.search(clean_prompt)
+                and len(grounded_outline.slides) < analysis.slide_count
+            ):
+                validation_analysis = analysis.model_copy(
+                    update={"slide_count": len(grounded_outline.slides)}
+                )
+            validate_outline_facts(validation_analysis, grounded_outline)
             _validate_requested_layouts(clean_prompt, grounded_outline)
             return grounded_outline
         except ValueError as exc:

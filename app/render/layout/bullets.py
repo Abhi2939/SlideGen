@@ -38,7 +38,7 @@ def render(prs, data, theme):
     size = fit.choose_size(sizes, fits)
     hs = heights(size)
     if not fits(size):
-        log.warning("bullets slide %r overflows even at %spt", data.title, size)
+        log.warning("bullets slide overflows even at %spt", size)
 
     spare = BODY_H - sum(hs)
     gap = min(Inches(1.0), max(GAP_M, int(spare * 0.5 / max(n - 1, 1))))

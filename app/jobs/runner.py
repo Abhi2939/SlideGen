@@ -11,7 +11,7 @@ from threading import Timer
 from typing import Callable
 
 from app.core.deck_schema import Deck
-from app.core.errors import DeckReviewError, ProviderLimitError
+from app.core.errors import DeckReviewError, LLMProviderError, ProviderLimitError
 from app.jobs.store import Job, JobStore
 from app.llm.usage import TokenUsage
 from app.pipeline.orchestrator import generate_deck
@@ -116,12 +116,29 @@ class JobRunner:
             if isinstance(exc, ProviderLimitError):
                 log.warning("job %s stopped: provider quota/rate limit", job_id)
             else:
-                log.exception("job %s failed during deck generation", job_id)
+                cause = exc
+                provider_code = None
+                while cause is not None:
+                    if isinstance(cause, LLMProviderError) and cause.code in {
+                        "output_parse_failed",
+                        "json_validate_failed",
+                        "empty_response",
+                    }:
+                        provider_code = cause.code
+                    cause = cause.__cause__
+                log.warning(
+                    "job %s failed during deck generation: type=%s provider_code=%s",
+                    job_id,
+                    type(exc).__name__,
+                    provider_code,
+                )
             if isinstance(exc, DeckReviewError):
                 log.error(
-                    "job %s final review findings: %s",
+                    "job %s final review findings: issues=%d missing_facts=%d repair_rounds=%d",
                     job_id,
-                    exc.review.model_dump_json(),
+                    len(exc.review.issues),
+                    len(exc.review.missing_fact_ids),
+                    exc.repair_rounds,
                 )
             try:
                 self.store.mark_failed(

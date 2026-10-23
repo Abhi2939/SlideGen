@@ -166,6 +166,47 @@ def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
     assert all(call["type"] == "json_object" for call in [calls[0], *calls[2:]])
 
 
+def test_job_corrects_out_of_range_review_references_and_saves_powerpoint(tmp_path):
+    from app.config import Settings
+    from app.pipeline.orchestrator import generate_deck
+    from pptx import Presentation
+    from test_pipeline_orchestrator import FakePipelineGenerator
+
+    class Generator(FakePipelineGenerator):
+        review_calls = 0
+
+        def generate(self, output_model, **kwargs):
+            if output_model is ReviewOutput:
+                self.review_calls += 1
+                if self.review_calls == 1:
+                    return ReviewOutput(
+                        passed=False,
+                        issues=[
+                            {
+                                "category": "overflow",
+                                "severity": "high",
+                                "detail": "Check slides",
+                                "slide_indices": [4, 5],
+                            }
+                        ],
+                        regenerate_slide_indices=[4, 5],
+                    )
+                assert "0, 1, 2" in kwargs["user_prompt"]
+            return super().generate(output_model, **kwargs)
+
+    generator = Generator()
+    store = JobStore(tmp_path)
+    settings = Settings("groq", None, "fake", None, None, None, None, 2)
+    with JobRunner(
+        store, generate=lambda prompt: generate_deck(prompt, settings=settings, generator=generator)
+    ) as runner:
+        job = runner.submit("Make a 3-slide launch deck. Launch is June 1.")
+    completed = store.get(job.id)
+    assert completed.status == "done"
+    assert generator.review_calls == 2
+    assert len(Presentation(completed.output_path).slides) == 3
+
+
 def test_job_timeout_fails_with_clean_user_message(tmp_path):
     store = JobStore(tmp_path)
     started = threading.Event()
@@ -215,7 +256,8 @@ def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, cap
         submitted = runner.submit("Make a product deck")
         failed = wait_for_status(store, submitted.id, "failed")
         assert failed.error == USER_ERROR
-        assert "Unsupported AI capability" in caplog.text
+        assert "Unsupported AI capability" not in caplog.text
+        assert "issues=1" in caplog.text
         assert submitted.id in caplog.text
     finally:
         runner.close()

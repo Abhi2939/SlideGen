@@ -768,6 +768,7 @@ def test_unsupported_claim_categories_only_allow_source_supported_categories():
     categories = unsupported_claim_categories(claims, "Custom-blended makeup for your style.")
 
     assert categories == [
+        "unsupported calls to action",
         "AI or algorithm claims",
         "assessment or diagnostic processes",
         "manufacturing or production processes",

@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 
 # Support both `python scripts/live_smoke.py` and `python -m scripts.live_smoke`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -48,6 +49,7 @@ def run(settings, output_dir, *, generate=generate_deck, build=build_deck):
                     prompt,
                     settings=settings,
                     max_workers=1,
+                    deadline=time.monotonic() + 900,
                     usage_callback=counts.update,
                     review_callback=reviews.append,
                 )

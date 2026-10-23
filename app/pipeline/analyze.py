@@ -46,8 +46,12 @@ product introduction for potential customers; leave the audience unspecified
 if that is safer than guessing. Treat labels such as 'Startup name' or 'Brand
 name' as metadata: extract and use the value as the brand name, and do not
 copy the label into presentation text. Choose a slide count from 3 to 30 that
-suits the request. For a concise brief with no requested slide
-count, choose at least four slides and do not repeat facts just to fill pages.
+suits the request. For a broad educational topic with no requested count,
+choose roughly six to eight substantive slides. For a concise company brief,
+choose four to six slides, combining related facts instead of padding pages.
+A short product brief with launch and growth plans typically needs five or six
+full slides, not a separate slide for each short phrase. Never add a standalone
+confidence slogan or a closing invitation without source evidence.
 A brief with product details, personalization, a launch plan, and later growth
 activities needs enough content slides to cover each subject distinctly. Keep
 every supplied launch channel and growth activity in required_facts. These are
@@ -99,6 +103,12 @@ def analyze_prompt(
         and analysis.slide_count < DEFAULT_SLIDE_COUNT
     ):
         analysis = analysis.model_copy(update={"slide_count": DEFAULT_SLIDE_COUNT})
+    if not _EXPLICIT_SLIDE_COUNT_PATTERN.search(clean_prompt) and not re.search(
+        r"\b(?:startup|company|brand|our|we|investor|pitch|fundrais\w*|product|raising|funds|fintech)\b",
+        clean_prompt,
+        re.I,
+    ):
+        analysis = analysis.model_copy(update={"slide_count": max(6, analysis.slide_count)})
     minimum_count = _minimum_reference_slide_count(clean_prompt)
     if minimum_count > analysis.slide_count and not _EXPLICIT_SLIDE_COUNT_PATTERN.search(
         clean_prompt

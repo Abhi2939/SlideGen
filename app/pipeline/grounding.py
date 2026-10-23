@@ -4,6 +4,17 @@ import re
 
 
 UNSUPPORTED_CLAIM_PATTERNS = {
+    "unsupported calls to action": re.compile(
+        r"\b(?:follow us|follow (?:our|us on)|join (?:our|the) community|"
+        r"book (?:a|your) (?:demo|call|consultation)|schedule (?:a|your) (?:demo|call)|"
+        r"download (?:our|the) app|visit our|shop now|buy now|order now)\b",
+        re.IGNORECASE,
+    ),
+    "unsupported product benefit or guarantee": re.compile(
+        r"\b(?:confidence in every purchase|boosts? confidence|unmatched quality|"
+        r"guaranteed results|risk[- ]free|save time|time savings|cost savings)\b",
+        re.IGNORECASE,
+    ),
     "AI or algorithm claims": re.compile(
         r"\b(?:AI|artificial intelligence|algorithm(?:ic)?)\b", re.IGNORECASE
     ),
@@ -193,7 +204,12 @@ def unsupported_claim_categories(
         for category, pattern in UNSUPPORTED_CLAIM_PATTERNS.items()
         if category not in allowed_categories
         and pattern.search(text)
-        and not pattern.search(source)
+        and (
+            any(match.group().casefold() not in source for match in pattern.finditer(text))
+            if category
+            in {"unsupported calls to action", "unsupported product benefit or guarantee"}
+            else not pattern.search(source)
+        )
     ]
 
 
