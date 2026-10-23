@@ -130,6 +130,31 @@ def test_curated_photos_can_be_disabled_and_do_not_replace_configured_api_result
     assert fake_http[0].headers["host"] == "api.pexels.com"
 
 
+def test_generic_deck_name_uses_slide_topic_for_curated_photos(tmp_path, fake_http):
+    from app.core.deck_schema import Deck
+
+    deck = Deck(
+        title="Reference layouts",
+        slides=[
+            {"layout": "title", "title": "Examples"},
+            {
+                "layout": "bullets",
+                "title": "Global FinTech Market",
+                "bullets": [{"text": "Supplied inputs"}, {"text": "Verified data"}],
+            },
+            {"layout": "closing", "title": "Summary"},
+        ],
+    )
+    resolved = AssetResolver(AssetSettings(cache_dir=tmp_path)).resolve(
+        deck, "A private request that must not become an image query"
+    )
+    photos = [asset for asset in resolved.assets if asset.role == "photo"]
+    assert len(photos) == 1
+    assert photos[0].query == "financial technology"
+    assert photos[0].photographer == "Joaquin Carfagna"
+    assert all("private" not in str(request.url) for request in fake_http)
+
+
 def test_full_curated_fake_pipeline_saves_images_credit_and_notes(tmp_path, monkeypatch, fake_http):
     from test_blush_prompt import BlushGenerator, PROMPT
     from app.config import Settings

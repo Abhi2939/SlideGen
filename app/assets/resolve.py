@@ -168,7 +168,7 @@ class AssetResolver:
             if budget <= 0:
                 return deck
             plans = []
-            query = topic_query(deck.title)
+            query = topic_query(" ".join([deck.title, *(slide.title for slide in deck.slides)]))
             for index, slide in enumerate(deck.slides):
                 color = "ffffff" if slide.layout in {"title", "closing", "section"} else "1b365d"
                 plans.append((index, "corner", "icon", "circle", color))
