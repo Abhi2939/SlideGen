@@ -142,6 +142,8 @@ The editorial outline also receives bounded source-evidence correction (two sema
 
 Failed-job status responses also include an optional `failure` object with a safe explanation, fixed error category, generation stage, optional slide index, application-relative code location and sanitized provider status/code. The browser shows the explanation and job reference. These diagnostics are saved in SQLite and survive restarts; existing database schemas are migrated automatically. Raw exception text, prompts, slide titles, generated content and credentials are excluded. Jobs that failed before this change keep their original generic error because their diagnostics were not recorded. Terminal job failures cannot be revived by late progress updates or overwritten by a later error.
 
+For the explicit five-activity "quarterly growth through ..." brief, roadmap labels and order now come directly from the supplied list. Code assigns the visibly proposed Q1/Q2/Q3/Q4/Q4 sequence before content validation. Generated descriptions follow their activity labels rather than list positions; omitted, ambiguous or unrelated activities receive short source-only proposed descriptions. Unsupported claims in matched descriptions still fail validation, and the complete deck still receives final source review. Equivalent activity aliases are compared consistently on both sides. This removes model-dependent label/order/quarter failures without relaxing claim checks or changing provider limits.
+
 ### Linux and macOS
 
 From the project root, create and activate a virtual environment, then install runtime dependencies:

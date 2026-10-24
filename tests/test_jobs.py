@@ -204,6 +204,29 @@ def test_exhausted_outline_source_failure_logs_reason_without_generated_text(tmp
     assert "PRIVATE" not in caplog.text
 
 
+def test_job_recovers_roadmap_activity_mismatch_and_saves_powerpoint(tmp_path, monkeypatch):
+    from pptx import Presentation
+    from app.pipeline.orchestrator import generate_deck
+    from app.render.builder import build_deck
+    from test_editorial_pipeline import PROMPT, MismatchedRoadmapGenerator
+
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    monkeypatch.setattr(
+        "app.qa.gate.build_checked", lambda deck, path, **kwargs: build_deck(deck, path)
+    )
+    fake = MismatchedRoadmapGenerator()
+    store = JobStore(tmp_path)
+    with JobRunner(
+        store, generate=lambda prompt: generate_deck(prompt, generator=fake, semantic_attempts=1)
+    ) as runner:
+        job = runner.submit(PROMPT)
+    completed = store.get(job.id)
+    assert completed.status == "done"
+    assert completed.failure is None
+    assert len(Presentation(completed.output_path).slides) == 9
+    assert fake.stages.count("write") == 9
+
+
 def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
     from app.config import Settings
     from app.llm.client import LLMClient

@@ -6,7 +6,7 @@ from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
 from app.core.errors import OutlineSourceError, ProviderLimitError, SlideWriteError
-from app.pipeline.editorial import clean_copy, validate_copy, StoryPlan
+from app.pipeline.editorial import clean_copy, ground_roadmap, validate_copy, StoryPlan
 from app.pipeline.orchestrator import generate_deck
 
 PROMPT = "Blush is a custom beauty brand offering foundation, lipstick, and skincare blended exclusively for your skin tone, undertone, and style, so you never get the wrong shade. Our launch will focus on a shade-matching quiz, waitlist, and creator-led demos, followed by quarterly growth through UGC, subscriptions, new product lines, pop-ups, and festive scaling."
@@ -219,6 +219,125 @@ def test_growth_requires_every_source_activity_separately():
     timeline.items[2].title = "Creator demos"
     with pytest.raises(ValueError, match="five separate activities"):
         validate_copy(timeline, plan, PROMPT)
+
+
+@pytest.mark.parametrize("variation", ["reordered", "missing", "duplicate", "quarters", "aliases"])
+def test_grounded_roadmap_recovers_source_structure_without_another_model_call(variation):
+    deck = Deck.model_validate_json(FIXTURE.read_text())
+    slide = next(s for s in deck.slides if s.archetype == "timeline_horizontal")
+    plan = StoryPlan(archetype=slide.archetype, title=slide.title, purpose="Quarterly growth")
+    original = slide.model_dump_json()
+    if variation == "reordered":
+        slide.items = list(reversed(slide.items))
+    elif variation == "missing":
+        slide.items = slide.items[:3]
+    elif variation == "duplicate":
+        slide.items[3] = slide.items[0].model_copy(deep=True)
+    elif variation == "quarters":
+        for item in slide.items:
+            item.quarter = "Q1"
+    else:
+        for item, title in zip(
+            slide.items,
+            ["User-generated content", "Subscriptions", "New lines", "Pop-up stores", "Festive"],
+        ):
+            item.title = title
+    grounded = ground_roadmap(slide, plan, PROMPT)
+    validate_copy(grounded, plan, PROMPT)
+    assert [i.title for i in grounded.items] == [
+        "UGC",
+        "subscriptions",
+        "new product lines",
+        "pop-ups",
+        "festive scaling",
+    ]
+    assert [i.quarter for i in grounded.items] == ["Q1", "Q2", "Q3", "Q4", "Q4"]
+    assert grounded.subtitle.startswith("Proposed")
+    assert "not supplied dates" in grounded.notes
+    if variation == "reordered":
+        expected = StorySlide.model_validate_json(original)
+        assert [i.description for i in grounded.items] == [i.description for i in expected.items]
+
+
+def test_roadmap_discards_unrelated_activities_without_reassigning_their_claims():
+    deck = Deck.model_validate_json(FIXTURE.read_text())
+    slide = next(s for s in deck.slides if s.archetype == "timeline_horizontal")
+    plan = StoryPlan(archetype=slide.archetype, title=slide.title, purpose="Quarterly growth")
+    slide.items[2].title = "Creator demos"
+    slide.items[2].description = "PRIVATE_GENERATION raised $99m with guaranteed shipping."
+    grounded = ground_roadmap(slide, plan, PROMPT)
+    validate_copy(grounded, plan, PROMPT)
+    assert grounded.items[2].title == "new product lines"
+    assert "PRIVATE_GENERATION" not in grounded.model_dump_json()
+    assert "raised" not in grounded.items[2].description
+
+
+def test_grounded_roadmap_still_rejects_unsupported_descriptions():
+    deck = Deck.model_validate_json(FIXTURE.read_text())
+    slide = next(s for s in deck.slides if s.archetype == "timeline_horizontal")
+    plan = StoryPlan(archetype=slide.archetype, title=slide.title, purpose="Quarterly growth")
+    slide.items[0].description = "Revenue reached $99m."
+    grounded = ground_roadmap(slide, plan, PROMPT)
+    with pytest.raises(ValueError, match="numeric"):
+        validate_copy(grounded, plan, PROMPT)
+
+
+def test_roadmap_without_explicit_activity_list_is_not_replaced():
+    slide = Deck.model_validate_json(FIXTURE.read_text()).slides[6]
+    plan = StoryPlan(archetype=slide.archetype, title=slide.title, purpose="Growth")
+    assert ground_roadmap(slide, plan, "Create a general growth roadmap.") is slide
+
+
+def test_roadmap_alias_comparison_is_symmetric_for_source_and_generated_labels():
+    slide = Deck.model_validate_json(FIXTURE.read_text()).slides[6]
+    plan = StoryPlan(archetype=slide.archetype, title=slide.title, purpose="Growth")
+    validate_copy(slide, plan, PROMPT.replace("UGC,", "user-generated content,"))
+
+
+class MismatchedRoadmapGenerator(StoryGenerator):
+    def generate(self, output_model, *, stage, **kwargs):
+        slide = super().generate(output_model, stage=stage, **kwargs)
+        if stage == "write" and slide.archetype == "timeline_horizontal":
+            slide = slide.model_copy(deep=True)
+            slide.items = list(reversed(slide.items[:4]))
+            for item in slide.items:
+                item.quarter = "Q1"
+        return slide
+
+
+def test_full_pipeline_grounds_slide_seven_before_review(monkeypatch, tmp_path):
+    from app.render.builder import build_deck
+
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = MismatchedRoadmapGenerator()
+    deck = generate_deck(PROMPT, generator=fake, semantic_attempts=1)
+    assert fake.stages == ["outline"] + ["write"] * 9 + ["review"]
+    validate_copy(
+        deck.slides[6],
+        StoryPlan(archetype="timeline_horizontal", title=deck.slides[6].title, purpose="Growth"),
+        PROMPT,
+    )
+    path = build_deck(deck, tmp_path / "corrected-roadmap.pptx", strict=True)
+    timeline = Presentation(path).slides[6]
+
+    def visible_text(shapes):
+        result = []
+        for shape in shapes:
+            if shape.has_text_frame:
+                result.append(shape.text)
+            if shape.shape_type == 6:
+                result.extend(visible_text(shape.shapes))
+        return result
+
+    text = "\n".join(visible_text(timeline.shapes))
+    for label in (
+        "Q1  UGC",
+        "Q2  subscriptions",
+        "Q3  new product lines",
+        "Q4  pop-ups",
+        "Q4  festive scaling",
+    ):
+        assert label in text
 
 
 def test_inferred_mechanisms_are_labelled_as_proposals():

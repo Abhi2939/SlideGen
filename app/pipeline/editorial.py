@@ -122,6 +122,68 @@ def _normalized(text):
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
 
 
+def quarterly_growth_activities(prompt):
+    """Extract the explicit five-activity brief supported by the roadmap contract."""
+    match = re.search(r"\bquarterly\s+growth\s+through\s+([^.!?\n]+)", prompt, re.I)
+    if match is None:
+        return []
+    activities = [
+        value.strip(" ;:")
+        for value in re.split(r",\s*(?:and\s+)?|\s+and\s+", match.group(1))
+        if value.strip(" ;:")
+    ]
+    return activities if len(activities) == 5 else []
+
+
+def _activity_key(title):
+    return {
+        "user generated content": "ugc",
+        "ugc campaigns": "ugc",
+        "new lines": "new product lines",
+        "festive": "festive scaling",
+        "pop up stores": "pop ups",
+    }.get(_normalized(title), _normalized(title))
+
+
+def ground_roadmap(slide, plan, prompt):
+    """Keep supplied activities and proposed scheduling out of free-form generation."""
+    activities = quarterly_growth_activities(prompt)
+    if (
+        plan.archetype != "timeline_horizontal"
+        or slide.archetype != plan.archetype
+        or not activities
+        or any(len(activity) > 55 for activity in activities)
+    ):
+        return slide
+    # Reuse descriptions only when a unique activity label identifies them.
+    # Never attach a description to a different activity just by position.
+    descriptions = {}
+    for item in slide.items:
+        descriptions.setdefault(_activity_key(item.title), []).append(item.description)
+    items = []
+    for activity, quarter in zip(activities, ("Q1", "Q2", "Q3", "Q4", "Q4")):
+        candidates = descriptions.get(_activity_key(activity), [])
+        description = (
+            candidates[0]
+            if len(candidates) == 1
+            else f"Explore {activity} as a proposed growth activity."
+        )
+        items.append({"title": activity, "description": description, "quarter": quarter})
+    data = slide.model_dump()
+    data.update(
+        title=plan.title,
+        subtitle="Proposed quarterly sequence for the five supplied growth activities",
+        items=items,
+        illustrative=False,
+        icon_names=[],
+        notes=(
+            "Activities and order are taken from the brief. Quarterly assignments and explanatory "
+            "actions are proposals, not supplied dates, commitments or achieved results."
+        ),
+    )
+    return StorySlide.model_validate(data)
+
+
 def clean_copy(slide, source_prompt=""):
     data = slide.model_dump()
     removed = []
@@ -335,30 +397,17 @@ def validate_copy(slide, plan, prompt):
         if contact not in prompt:
             raise ValueError("unprovided contact")
     if slide.archetype == "timeline_horizontal":
-        if re.search(r"quarterly growth through", prompt, re.I):
-            growth = re.split(r"quarterly growth through", prompt, flags=re.I)[1].split(".")[0]
-            activities = [
-                v.strip() for v in re.split(r",\s*(?:and\s+)?|\s+and\s+", growth) if v.strip()
-            ]
-            if len(activities) == 5:
-                actual = [_normalized(i.title) for i in slide.items]
-                aliases = {
-                    "user generated content": "ugc",
-                    "ugc campaigns": "ugc",
-                    "new lines": "new product lines",
-                    "festive": "festive scaling",
-                    "pop up stores": "pop ups",
-                    "pop ups": "pop ups",
-                }
-                actual = [aliases.get(v, v) for v in actual]
-                if actual != [_normalized(v) for v in activities] or [
-                    i.quarter for i in slide.items
-                ] != ["Q1", "Q2", "Q3", "Q4", "Q4"]:
-                    raise ValueError(
-                        "Roadmap must have exactly five separate activities in this order: "
-                        + ", ".join(activities)
-                        + ". Use quarters Q1,Q2,Q3,Q4,Q4. Do not include quiz, waitlist or demos on the growth roadmap."
-                    )
+        activities = quarterly_growth_activities(prompt)
+        if activities:
+            actual = [_activity_key(i.title) for i in slide.items]
+            if actual != [_activity_key(v) for v in activities] or [
+                i.quarter for i in slide.items
+            ] != ["Q1", "Q2", "Q3", "Q4", "Q4"]:
+                raise ValueError(
+                    "Roadmap must have exactly five separate activities in this order: "
+                    + ", ".join(activities)
+                    + ". Use quarters Q1,Q2,Q3,Q4,Q4. Do not include quiz, waitlist or demos on the growth roadmap."
+                )
         quarters = [i.quarter for i in slide.items]
         if any(quarters):
             if not re.search(r"quarter|Q[1-4]", prompt, re.I):
@@ -473,6 +522,7 @@ def generate_editorial_deck(
                 )
                 try:
                     slide = clean_copy(slide, prompt)
+                    slide = ground_roadmap(slide, plan, prompt)
                     validate_copy(slide, plan, prompt)
                     return slide
                 except ValueError as exc:
