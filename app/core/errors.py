@@ -41,14 +41,29 @@ class StructuredOutputError(SlideGenError):
 class SlideWriteError(SlideGenError):
     """A single planned slide could not be generated or validated."""
 
-    def __init__(self, slide_index: int, title: str, detail: str):
+    def __init__(self, slide_index: int, title: str, detail: str, *, stage: str = "write"):
         self.slide_index = slide_index
+        self.stage = stage
         self.title = title
         self.detail = detail
         self.reason = next(
             (
                 code
                 for marker, code in (
+                    ("copy changed planned archetype", "layout_mismatch"),
+                    ("incorrect archetype item count", "item_count_mismatch"),
+                    ("region word budget", "copy_too_long"),
+                    ("Cover tagline", "cover_tagline_too_long"),
+                    ("illustrative targets need", "missing_illustrative_disclosure"),
+                    ("illustrative values only", "invalid_illustrative_slide"),
+                    ("unprovided numeric claim", "unprovided_numeric_data"),
+                    ("unsupported hard company claim", "unsupported_claim"),
+                    ("unsupported product or operational claim", "unsupported_claim"),
+                    ("unprovided product specification", "unsupported_claim"),
+                    ("unprovided contact", "unsupported_contact"),
+                    ("Roadmap must have", "roadmap_activity_mismatch"),
+                    ("quarters require", "unprovided_quarters"),
+                    ("quarter assignments", "invalid_quarter_sequence"),
                     ("generated title does not match", "title_mismatch"),
                     ("generated layout", "layout_mismatch"),
                     ("duplicate bullet", "duplicate_bullets"),

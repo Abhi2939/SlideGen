@@ -35,7 +35,7 @@ def _is_provider_json_validation_error(exc: LLMProviderError) -> bool:
 
 class StructuredGenerator:
     def __init__(
-        self, client: LLMClient, *, max_attempts: int = 2, max_rate_limit_retries: int = 2
+        self, client: LLMClient, *, max_attempts: int = 2, max_rate_limit_retries: int = 6
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
@@ -78,6 +78,11 @@ class StructuredGenerator:
                 )
                 if not temporary or retry == self.max_rate_limit_retries:
                     raise
+                # Retry-After can land on the edge of the provider's rolling
+                # window. Leave headroom and back off repeated short 429s;
+                # otherwise a 17s, 2s, 1s sequence exhausts retries just before
+                # enough tokens become available. Keep the request unchanged.
+                seconds = max(seconds + 1, min(2 ** (retry + 1), 60))
                 if self.deadline is not None and time.monotonic() + seconds >= self.deadline:
                     raise TimeoutError("deck generation exceeded its time limit") from None
                 log.warning(

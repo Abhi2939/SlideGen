@@ -69,8 +69,8 @@ def test_temporary_minute_limit_resumes_same_call_without_spending_json_attempt(
     generator.on_provider_wait = lambda stage, seconds: progress.append((stage, seconds))
     assert generate(generator).title == "Ready"
     assert provider.calls[0] == provider.calls[1]
-    assert waits == [20]
-    assert progress == [("write", 20), ("write", 0)]
+    assert waits == [21]
+    assert progress == [("write", 21), ("write", 0)]
     assert "tokens_per_minute" in caplog.text
     assert "PRIVATE" not in caplog.text
 
@@ -104,11 +104,11 @@ def test_nonrecoverable_limits_never_sleep_or_retry(monkeypatch, error):
 def test_minute_retries_are_bounded_and_metadata_is_sanitized(monkeypatch, caplog):
     waits = []
     monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    provider = Provider([limit_error() for _ in range(3)])
+    provider = Provider([limit_error() for _ in range(7)])
     with pytest.raises(ProviderLimitError) as caught:
         generate(StructuredGenerator(LLMClient(provider)))
-    assert len(provider.calls) == 3
-    assert waits == [20, 20]
+    assert len(provider.calls) == 7
+    assert waits == [21, 21, 21, 21, 32, 60]
     assert caught.value.status_code == 429
     assert caught.value.diagnostics == {
         "limit_type": "tokens_per_minute",
@@ -152,6 +152,43 @@ def test_temporary_limit_retries_can_be_disabled(monkeypatch):
     provider = Provider([limit_error()])
     with pytest.raises(ProviderLimitError):
         generate(StructuredGenerator(LLMClient(provider), max_rate_limit_retries=0))
+    assert waits == []
+    assert len(provider.calls) == 1
+
+
+def test_production_short_wait_sequence_recovers_without_restarting_work(monkeypatch):
+    waits = []
+    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
+    provider = Provider(
+        [limit_error(retry=retry) for retry in ("17", "2", "1")] + ['{"title":"Ready"}']
+    )
+    generator = StructuredGenerator(LLMClient(provider), max_attempts=1)
+    assert generate(generator).title == "Ready"
+    assert waits == [18, 4, 8]
+    assert all(call == provider.calls[0] for call in provider.calls)
+    assert not generator._limited.is_set()
+
+
+def test_custom_minute_retry_cap_is_preserved(monkeypatch):
+    waits = []
+    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
+    provider = Provider([limit_error(retry="1") for _ in range(3)])
+    generator = StructuredGenerator(LLMClient(provider), max_rate_limit_retries=2)
+    with pytest.raises(ProviderLimitError):
+        generate(generator)
+    assert len(provider.calls) == 3
+    assert waits == [2, 4]
+
+
+def test_backoff_headroom_must_also_fit_job_deadline(monkeypatch):
+    waits = []
+    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
+    monkeypatch.setattr("app.llm.structured.time.monotonic", lambda: 100)
+    provider = Provider([limit_error(retry="2")])
+    generator = StructuredGenerator(LLMClient(provider))
+    generator.deadline = 103
+    with pytest.raises(TimeoutError):
+        generate(generator)
     assert waits == []
     assert len(provider.calls) == 1
 

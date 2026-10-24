@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.assets.resolve import prepare_assets
 from app.config import Settings
 from app.core.deck_schema import Archetype, Deck, StorySlide
+from app.core.errors import SlideWriteError
 from app.llm.factory import create_llm_client
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import MAX_PROMPT_CHARS
@@ -414,7 +415,7 @@ def generate_editorial_deck(
         if selected != "fintech" and outline.theme != selected:
             outline = outline.model_copy(update={"theme": selected})
 
-        def write(plan, feedback="", stage="write"):
+        def write(plan, slide_index, feedback="", stage="write"):
             last = None
             for attempt in range(semantic_attempts):
                 announce("Writing story slides" if stage == "write" else "Revising story slides")
@@ -440,9 +441,11 @@ def generate_editorial_deck(
                 except ValueError as exc:
                     last = str(exc)
                     feedback = last
-            raise ValueError(last or "slide copy failed validation")
+            raise SlideWriteError(
+                slide_index, plan.title, last or "slide copy failed validation", stage=stage
+            )
 
-        slides = [write(plan) for plan in outline.slides]
+        slides = [write(plan, index) for index, plan in enumerate(outline.slides)]
         for round_index in range(max_repair_rounds + 1):
             announce("Reviewing source facts and story")
             review = generator.generate(
@@ -482,7 +485,7 @@ def generate_editorial_deck(
             if not fixes:
                 raise ValueError("review failed without actionable findings")
             for index, feedback in fixes.items():
-                slides[index] = write(outline.slides[index], feedback, "repair")
+                slides[index] = write(outline.slides[index], index, feedback, "repair")
         deck = Deck(
             title=outline.brand,
             audience=outline.audience,

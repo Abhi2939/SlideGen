@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.core.deck_schema import Deck
-from app.core.errors import DeckReviewError
+from app.core.errors import DeckReviewError, SlideWriteError
 from app.jobs.runner import USER_ERROR, JobRunner
 from app.jobs.store import JobStore
 from app.pipeline.models import ReviewOutput
@@ -133,6 +133,36 @@ def test_exhausted_parse_failure_logs_only_sanitized_provider_error(tmp_path, ca
     assert "PRIVATE_REASONING" not in caplog.text
     assert "PRIVATE_CREDENTIAL" not in caplog.text
     assert "failed_generation" not in caplog.text
+
+
+def test_slide_validation_failure_logs_safe_reason_and_index(tmp_path, caplog):
+    def generate(prompt):
+        raise SlideWriteError(
+            2, "PRIVATE_TITLE", "unprovided numeric claim: PRIVATE_COMPLETION", stage="repair"
+        )
+
+    store = JobStore(tmp_path)
+    with JobRunner(store, generate=generate) as runner:
+        job = runner.submit("PRIVATE_BRIEF")
+    assert store.get(job.id).error == USER_ERROR
+    assert "reason=unprovided_numeric_data stage=repair slide_index=2" in caplog.text
+    assert "PRIVATE" not in caplog.text
+
+
+def test_plain_value_error_logs_application_location_without_error_text(tmp_path, caplog):
+    from app.pipeline.orchestrator import generate_deck
+
+    def generate(prompt):
+        return generate_deck(prompt, design="PRIVATE_SETTING")
+
+    store = JobStore(tmp_path)
+    with JobRunner(store, generate=generate) as runner:
+        job = runner.submit("PRIVATE_BRIEF")
+    assert store.get(job.id).error == USER_ERROR
+    assert "type=ValueError" in caplog.text
+    assert "location=pipeline/orchestrator.py:" in caplog.text
+    assert "PRIVATE" not in caplog.text
+    assert str(Path.cwd()) not in caplog.text
 
 
 def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):

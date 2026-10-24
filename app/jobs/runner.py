@@ -14,12 +14,29 @@ from app.core.deck_schema import Deck
 from app.core.errors import DeckReviewError, LLMProviderError, ProviderLimitError
 from app.jobs.store import Job, JobStore
 from app.llm.usage import TokenUsage
+from app.llm.limits import safe_label
 from app.pipeline.orchestrator import generate_deck
 from app.render.builder import build_deck
 
 
 log = logging.getLogger(__name__)
 USER_ERROR = "Deck generation failed. Please try again."
+
+
+def _failure_location(exc: Exception) -> str | None:
+    """Identify application code without logging exception text or local paths."""
+    app_root = Path(__file__).resolve().parents[1]
+    location = None
+    frame = exc.__traceback__
+    while frame is not None:
+        try:
+            relative = Path(frame.tb_frame.f_code.co_filename).resolve().relative_to(app_root)
+        except ValueError:
+            pass
+        else:
+            location = f"{relative.as_posix()}:{frame.tb_lineno}"
+        frame = frame.tb_next
+    return location
 
 
 class JobRunner:
@@ -138,11 +155,15 @@ class JobRunner:
                         provider_code = cause.code
                     cause = cause.__cause__
                 log.warning(
-                    "job %s failed during deck generation: type=%s provider_code=%s reason=%s",
+                    "job %s failed during deck generation: type=%s provider_code=%s "
+                    "reason=%s stage=%s slide_index=%s location=%s",
                     job_id,
                     type(exc).__name__,
                     provider_code,
-                    getattr(exc, "reason", None),
+                    safe_label(str(exc.reason)) if hasattr(exc, "reason") else None,
+                    safe_label(str(exc.stage)) if hasattr(exc, "stage") else None,
+                    exc.slide_index if type(getattr(exc, "slide_index", None)) is int else None,
+                    _failure_location(exc),
                 )
             if isinstance(exc, DeckReviewError):
                 log.error(

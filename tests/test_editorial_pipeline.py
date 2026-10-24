@@ -5,6 +5,7 @@ import pytest
 from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
+from app.core.errors import SlideWriteError
 from app.pipeline.editorial import clean_copy, validate_copy, StoryPlan
 from app.pipeline.orchestrator import generate_deck
 
@@ -79,6 +80,22 @@ def test_internal_copy_filter_moves_notes_off_canvas():
     assert result.title == "Collection"
     assert result.subtitle is None
     assert "confirm before use" in result.notes
+
+
+def test_exhausted_copy_validation_has_safe_reason_and_slide_index(monkeypatch):
+    fake = StoryGenerator()
+    monkeypatch.setattr("app.pipeline.editorial.clean_copy", lambda slide, prompt: slide)
+
+    def reject_copy(*args):
+        raise ValueError("unprovided numeric claim: PRIVATE_COMPLETION")
+
+    monkeypatch.setattr("app.pipeline.editorial.validate_copy", reject_copy)
+    with pytest.raises(SlideWriteError) as caught:
+        generate_deck(PROMPT, generator=fake)
+    assert caught.value.reason == "unprovided_numeric_data"
+    assert caught.value.slide_index == 0
+    assert caught.value.stage == "write"
+    assert fake.stages == ["outline", "write", "write"]
 
 
 def test_illustrative_numbers_require_visible_and_notes_disclosure():
