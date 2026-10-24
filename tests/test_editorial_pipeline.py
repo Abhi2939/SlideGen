@@ -6,7 +6,13 @@ from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
 from app.core.errors import OutlineSourceError, ProviderLimitError, SlideWriteError
-from app.pipeline.editorial import clean_copy, ground_roadmap, validate_copy, StoryPlan
+from app.pipeline.editorial import (
+    clean_copy,
+    ground_roadmap,
+    source_launch_fallback,
+    validate_copy,
+    StoryPlan,
+)
 from app.pipeline.orchestrator import generate_deck
 
 PROMPT = "Blush is a custom beauty brand offering foundation, lipstick, and skincare blended exclusively for your skin tone, undertone, and style, so you never get the wrong shade. Our launch will focus on a shade-matching quiz, waitlist, and creator-led demos, followed by quarterly growth through UGC, subscriptions, new product lines, pop-ups, and festive scaling."
@@ -303,6 +309,119 @@ class MismatchedRoadmapGenerator(StoryGenerator):
             for item in slide.items:
                 item.quarter = "Q1"
         return slide
+
+
+class UnsupportedLaunchGenerator(StoryGenerator):
+    def __init__(self, *, correct_on_retry=False, limit_on_retry=False):
+        super().__init__()
+        self.launch_requests = []
+        self.correct_on_retry = correct_on_retry
+        self.limit_on_retry = limit_on_retry
+
+    def generate(self, output_model, *, stage, **kwargs):
+        if stage == "write":
+            request = json.loads(kwargs["user_prompt"])
+            if request["plan"]["purpose"].startswith("Three touchpoints in order:"):
+                self.launch_requests.append(request)
+                if len(self.launch_requests) == 1:
+                    self.launch_copy = super().generate(output_model, stage=stage, **kwargs)
+                else:
+                    self.stages.append(stage)
+                    if self.limit_on_retry:
+                        raise ProviderLimitError()
+                    if self.correct_on_retry:
+                        return self.launch_copy.model_copy(deep=True)
+                rejected = self.launch_copy.model_copy(deep=True)
+                rejected.items[1].title = "Join the waitlist"
+                rejected.items[
+                    1
+                ].description = "Secure early access and receive exclusive launch updates."
+                return rejected
+        return super().generate(output_model, stage=stage, **kwargs)
+
+
+def test_semantic_retry_edits_the_rejected_copy_instead_of_starting_blind(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = UnsupportedLaunchGenerator(correct_on_retry=True)
+    deck = generate_deck(PROMPT, generator=fake)
+    first, correction = fake.launch_requests
+    assert "rejected_copy" not in first
+    assert "early access" in correction["rejected_copy"]["items"][1]["description"]
+    assert "unsupported" in correction["feedback"]
+    assert "untrusted model output" in correction["correction"]
+    assert "notes" not in correction["rejected_copy"]
+    assert correction["brief"] == PROMPT
+    assert "early access" not in deck.slides[4].model_dump_json()
+
+
+def test_exhausted_launch_claims_use_validated_source_copy_and_still_receive_review(
+    monkeypatch, tmp_path
+):
+    from app.render.builder import build_deck
+
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = UnsupportedLaunchGenerator()
+    deck = generate_deck(PROMPT, generator=fake)
+    assert len(fake.launch_requests) == 2
+    assert fake.stages[-1] == "review"
+    launch = deck.slides[4]
+    assert [i.title for i in launch.items] == [
+        "shade-matching quiz",
+        "waitlist",
+        "creator-led demos",
+    ]
+    assert "early access" not in launch.model_dump_json()
+    assert "exclusive" not in launch.model_dump_json()
+    assert launch.subtitle.startswith("Proposed")
+    path = build_deck(deck, tmp_path / "source-launch.pptx", strict=True)
+    assert len(Presentation(path).slides) == 9
+
+
+def test_launch_source_fallback_never_masks_provider_limits(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = UnsupportedLaunchGenerator(limit_on_retry=True)
+    with pytest.raises(ProviderLimitError):
+        generate_deck(PROMPT, generator=fake)
+    assert len(fake.launch_requests) == 2
+    assert "review" not in fake.stages
+
+
+def test_no_source_launch_fallback_when_explicit_supported_clause_is_absent(monkeypatch):
+    fake = UnsupportedLaunchGenerator()
+    prompt = PROMPT.replace("launch will focus on", "launch might eventually consider")
+    with pytest.raises(SlideWriteError) as caught:
+        generate_deck(prompt, generator=fake)
+    assert caught.value.reason == "unsupported_claim"
+    assert len(fake.launch_requests) == 2
+
+
+def test_source_launch_fallback_is_limited_to_the_source_channel_plan():
+    plan = StoryPlan(archetype="process_steps", title="Manufacturing", purpose="Explain production")
+    assert source_launch_fallback(plan, PROMPT) is None
+    plan = plan.model_copy(update={"purpose": "Three touchpoints in order: supplied launch"})
+    assert (
+        source_launch_fallback(plan, PROMPT.replace("creator-led demos", "AI recommendations"))
+        is None
+    )
+
+
+def test_source_fallback_does_not_bypass_final_content_review(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+
+    class RejectedReviewGenerator(UnsupportedLaunchGenerator):
+        def generate(self, output_model, *, stage, **kwargs):
+            if stage == "review":
+                self.stages.append(stage)
+                return output_model(
+                    passed=False, issues=[{"slide_index": 4, "fix": "Preserve source wording"}]
+                )
+            return super().generate(output_model, stage=stage, **kwargs)
+
+    fake = RejectedReviewGenerator()
+    with pytest.raises(ValueError, match="final source review"):
+        generate_deck(PROMPT, generator=fake, max_repair_rounds=0)
+    assert len(fake.launch_requests) == 2
+    assert fake.stages[-1] == "review"
 
 
 def test_full_pipeline_grounds_slide_seven_before_review(monkeypatch, tmp_path):

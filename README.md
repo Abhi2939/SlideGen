@@ -144,6 +144,8 @@ Failed-job status responses also include an optional `failure` object with a saf
 
 For the explicit five-activity "quarterly growth through ..." brief, roadmap labels and order now come directly from the supplied list. Code assigns the visibly proposed Q1/Q2/Q3/Q4/Q4 sequence before content validation. Generated descriptions follow their activity labels rather than list positions; omitted, ambiguous or unrelated activities receive short source-only proposed descriptions. Unsupported claims in matched descriptions still fail validation, and the complete deck still receives final source review. Equivalent activity aliases are compared consistently on both sides. This removes model-dependent label/order/quarter failures without relaxing claim checks or changing provider limits.
 
+Slide content corrections now include the rejected visible copy, validation feedback and original review instructions, so the model can edit the specific failure. If unsupported claims persist in the explicitly supplied quiz/waitlist/creator-demo launch workflow, a narrowly scoped source-only replacement preserves those three channels and labels their descriptions as proposed. It is validated again and still receives final content review. Other slide topics, absent source channels, provider errors and exhausted schema errors do not use this fallback.
+
 ### Linux and macOS
 
 From the project root, create and activate a virtual environment, then install runtime dependencies:

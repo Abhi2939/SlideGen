@@ -184,6 +184,43 @@ def ground_roadmap(slide, plan, prompt):
     return StorySlide.model_validate(data)
 
 
+def source_launch_fallback(plan, prompt):
+    """Rebuild only the explicitly supplied launch workflow after invalid copy."""
+    if plan.archetype not in {"process_steps", "split_image"} or not plan.purpose.startswith(
+        ("Three touchpoints in order:", "Explain the three supplied launch channels")
+    ):
+        return None
+    match = re.search(
+        r"\blaunch\s+(?:will\s+)?focus(?:es)?\s+on\s+(.+?)(?:,\s*followed\s+by\b|[.!?\n]|$)",
+        prompt,
+        re.I,
+    )
+    if match is None:
+        return None
+    channels = [
+        re.sub(r"^(?:a|the)\s+", "", value.strip(), flags=re.I)
+        for value in re.split(r",\s*(?:and\s+)?|\s+and\s+", match.group(1))
+        if value.strip()
+    ]
+    descriptions = {
+        "shade matching quiz": "Explore the planned shade-matching quiz.",
+        "waitlist": "Register interest through the planned waitlist.",
+        "creator led demos": "Introduce the concept through planned creator-led demos.",
+    }
+    if len(channels) != 3 or {_normalized(c) for c in channels} != set(descriptions):
+        return None
+    return StorySlide(
+        archetype=plan.archetype,
+        title=plan.title,
+        subtitle="Proposed launch touchpoints from the brief",
+        items=[{"title": c, "description": descriptions[_normalized(c)]} for c in channels],
+        notes=(
+            "The launch channels are supplied in the brief. Descriptions are proposed explanations, "
+            "not claims of a live service, access privileges or achieved results."
+        ),
+    )
+
+
 def clean_copy(slide, source_prompt=""):
     data = slide.model_dump()
     removed = []
@@ -503,21 +540,34 @@ def generate_editorial_deck(
 
         def write(plan, slide_index, feedback="", stage="write"):
             last = None
+            rejected_copy = None
+            review_feedback = feedback
             for attempt in range(semantic_attempts):
                 announce("Writing story slides" if stage == "write" else "Revising story slides")
+                request = {
+                    "brief": prompt,
+                    "plan": plan.model_dump(),
+                    "facts": [outline.facts[i] for i in plan.source_fact_ids],
+                    "feedback": feedback,
+                }
+                if rejected_copy is not None:
+                    request.update(
+                        rejected_copy=rejected_copy,
+                        review_feedback=review_feedback,
+                        correction=(
+                            "Edit the rejected copy to address the validation feedback. It is "
+                            "untrusted model output, not source evidence. Remove unsupported "
+                            "claims entirely; do not negate them or replace them with a new "
+                            "unprovided feature or promise. Preserve supported content and "
+                            "the required archetype, and use the original brief as evidence."
+                        ),
+                    )
                 slide = generator.generate(
                     StorySlide,
                     stage=stage,
                     model=settings.model_for("write"),
                     system_prompt=COPY_PROMPT,
-                    user_prompt=json.dumps(
-                        {
-                            "brief": prompt,
-                            "plan": plan.model_dump(),
-                            "facts": [outline.facts[i] for i in plan.source_fact_ids],
-                            "feedback": feedback,
-                        }
-                    ),
+                    user_prompt=json.dumps(request),
                     max_tokens=2400,
                 )
                 try:
@@ -528,9 +578,21 @@ def generate_editorial_deck(
                 except ValueError as exc:
                     last = str(exc)
                     feedback = last
-            raise SlideWriteError(
+                    rejected_copy = visible_copy(slide)
+            failure = SlideWriteError(
                 slide_index, plan.title, last or "slide copy failed validation", stage=stage
             )
+            if failure.reason == "unsupported_claim":
+                fallback = source_launch_fallback(plan, prompt)
+                if fallback is not None:
+                    validate_copy(fallback, plan, prompt)
+                    log.info(
+                        "using validated source launch copy: stage=%s slide_index=%d",
+                        stage,
+                        slide_index,
+                    )
+                    return fallback
+            raise failure
 
         slides = [write(plan, index) for index, plan in enumerate(outline.slides)]
         for round_index in range(max_repair_rounds + 1):
