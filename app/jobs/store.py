@@ -13,6 +13,8 @@ import threading
 import uuid
 from typing import Iterator
 
+from app.jobs.failures import JobFailure
+
 
 def _utc_now() -> datetime:
     return datetime.now(timezone.utc)
@@ -32,6 +34,7 @@ class Job:
     stage: str | None
     created_at: datetime
     updated_at: datetime
+    failure: JobFailure | None = None
 
 
 class JobQueueFullError(Exception):
@@ -93,6 +96,8 @@ class JobStore:
             columns = {row["name"] for row in connection.execute("PRAGMA table_info(jobs)")}
             if "stage" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN stage TEXT")
+            if "failure" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN failure TEXT")
             connection.execute("PRAGMA journal_mode=WAL")
 
     @staticmethod
@@ -108,6 +113,7 @@ class JobStore:
             stage=row["stage"],
             created_at=datetime.fromisoformat(row["created_at"]),
             updated_at=datetime.fromisoformat(row["updated_at"]),
+            failure=JobFailure.model_validate_json(row["failure"]) if row["failure"] else None,
         )
 
     def create(self, prompt: str, *, max_active: int | None = None) -> Job:
@@ -173,15 +179,24 @@ class JobStore:
             stage=None,
         )
 
-    def mark_failed(self, job_id: str, error: str) -> Job:
-        return self._update(job_id, status="failed", output_path=None, error=error, stage=None)
+    def mark_failed(self, job_id: str, error: str, *, failure: JobFailure | None = None) -> Job:
+        return self._update(
+            job_id, status="failed", output_path=None, error=error, stage=None, failure=failure
+        )
 
-    def fail_if_running(self, job_id: str, error: str) -> bool:
+    def fail_if_running(
+        self, job_id: str, error: str, *, failure: JobFailure | None = None
+    ) -> bool:
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
                 "UPDATE jobs SET status = 'failed', output_path = NULL, error = ?, "
-                "stage = NULL, updated_at = ? WHERE id = ? AND status = 'running'",
-                (error, _timestamp(_utc_now()), job_id),
+                "stage = NULL, failure = ?, updated_at = ? WHERE id = ? AND status = 'running'",
+                (
+                    error,
+                    failure.model_dump_json() if failure else None,
+                    _timestamp(_utc_now()),
+                    job_id,
+                ),
             )
         return cursor.rowcount == 1
 
@@ -202,16 +217,23 @@ class JobStore:
         output_path: str | None,
         error: str | None,
         stage: str | None,
+        failure: JobFailure | None = None,
     ) -> Job:
         with self._lock, self._connect() as connection:
+            current = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+            if current is not None and current["status"] in {"failed", "done"}:
+                if status == "failed" and current["status"] == "failed":
+                    return self._from_row(current)
+                raise RuntimeError(f"job {job_id} is no longer running")
             cursor = connection.execute(
-                "UPDATE jobs SET status = ?, output_path = ?, error = ?, stage = ?, updated_at = ? "
+                "UPDATE jobs SET status = ?, output_path = ?, error = ?, stage = ?, failure = ?, updated_at = ? "
                 "WHERE id = ? AND (? IS NULL OR status = ?)",
                 (
                     status,
                     output_path,
                     error,
                     stage,
+                    failure.model_dump_json() if failure else None,
                     _timestamp(_utc_now()),
                     job_id,
                     "running" if status == "done" else None,

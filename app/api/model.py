@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.jobs.failures import JobFailure
+
 
 class CreateJobRequest(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
@@ -20,3 +22,4 @@ class JobStatusResponse(BaseModel):
     error: str | None
     stage: str | None = None
     queue_position: int | None = None
+    failure: JobFailure | None = None

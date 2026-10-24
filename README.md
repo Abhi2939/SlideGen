@@ -140,6 +140,8 @@ For a confirmed temporary per-minute limit, the app honors Groq's numeric `retry
 
 The editorial outline also receives bounded source-evidence correction (two semantic attempts by default). If a model lists a paraphrase or unsupported claim as a source fact, the app asks it to regenerate using exact excerpts from the original brief and rebuild the fact references before writing any slides. Rejected facts are never accepted as evidence. A persistent mismatch fails with `stage=outline reason=outline_fact_not_in_source`; correction attempts respect the job deadline and propagate provider limits immediately.
 
+Failed-job status responses also include an optional `failure` object with a safe explanation, fixed error category, generation stage, optional slide index, application-relative code location and sanitized provider status/code. The browser shows the explanation and job reference. These diagnostics are saved in SQLite and survive restarts; existing database schemas are migrated automatically. Raw exception text, prompts, slide titles, generated content and credentials are excluded. Jobs that failed before this change keep their original generic error because their diagnostics were not recorded. Terminal job failures cannot be revived by late progress updates or overwritten by a later error.
+
 ### Linux and macOS
 
 From the project root, create and activate a virtual environment, then install runtime dependencies:

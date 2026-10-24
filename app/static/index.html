@@ -192,7 +192,10 @@
           setBusy(false);
           return;
         }
-        if (job.status === 'failed') throw new Error(job.error || 'The presentation could not be created. Please try again.');
+        if (job.status === 'failed') {
+          const explanation = job.failure?.message || job.error || 'The presentation could not be created. Please try again.';
+          throw new Error(`${explanation} Job reference: ${job.id}.`);
+        }
         const seconds = Math.max(2, Math.round((Date.now() - startedAt) / 1000));
         if (job.status === 'queued') {
           const place = job.queue_position ? ` Position ${job.queue_position} in the queue.` : '';

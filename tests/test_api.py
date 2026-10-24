@@ -51,6 +51,7 @@ def test_api_full_submit_status_and_download_flow(tmp_path):
             "error": None,
             "stage": None,
             "queue_position": None,
+            "failure": None,
         }
 
         download = client.get(f"/api/jobs/{job_id}/download")
@@ -109,6 +110,27 @@ def test_api_returns_404_for_unknown_job(tmp_path):
     with TestClient(app) as client:
         assert client.get("/api/jobs/unknown").status_code == 404
         assert client.get("/api/jobs/unknown/download").status_code == 404
+
+
+def test_failed_job_exposes_safe_diagnostics_and_reference_in_page(tmp_path):
+    from app.core.errors import SlideWriteError
+
+    def generate(prompt):
+        raise SlideWriteError(2, "PRIVATE_TITLE", "unprovided numeric claim: PRIVATE_GENERATION")
+
+    app, _, _ = make_app(tmp_path, generate=generate)
+    with TestClient(app) as client:
+        created = client.post("/api/jobs", json={"prompt": "PRIVATE_BRIEF"})
+        job_id = created.json()["id"]
+        failed = wait_for_status(client, job_id, "failed").json()
+        assert failed["failure"]["code"] == "unprovided_numeric_data"
+        assert failed["failure"]["stage"] == "write"
+        assert failed["failure"]["slide_index"] == 2
+        assert "slide 3" in failed["failure"]["message"]
+        assert "PRIVATE" not in json.dumps(failed)
+        html = client.get("/").text
+        assert "job.failure?.message" in html
+        assert "Job reference: ${job.id}" in html
 
 
 def test_completed_download_survives_app_restart(tmp_path):

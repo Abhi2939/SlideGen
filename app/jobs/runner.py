@@ -13,6 +13,7 @@ from typing import Callable
 from app.core.deck_schema import Deck
 from app.core.errors import DeckReviewError, LLMProviderError, ProviderLimitError
 from app.jobs.store import Job, JobStore
+from app.jobs.failures import USER_ERROR, describe_failure, failure_location
 from app.llm.usage import TokenUsage
 from app.llm.limits import safe_label
 from app.pipeline.orchestrator import generate_deck
@@ -20,23 +21,6 @@ from app.render.builder import build_deck
 
 
 log = logging.getLogger(__name__)
-USER_ERROR = "Deck generation failed. Please try again."
-
-
-def _failure_location(exc: Exception) -> str | None:
-    """Identify application code without logging exception text or local paths."""
-    app_root = Path(__file__).resolve().parents[1]
-    location = None
-    frame = exc.__traceback__
-    while frame is not None:
-        try:
-            relative = Path(frame.tb_frame.f_code.co_filename).resolve().relative_to(app_root)
-        except ValueError:
-            pass
-        else:
-            location = f"{relative.as_posix()}:{frame.tb_lineno}"
-        frame = frame.tb_next
-    return location
 
 
 class JobRunner:
@@ -84,6 +68,7 @@ class JobRunner:
             return
         output_path = self.store.output_dir / f"{job_id}.pptx"
         deadline = time.monotonic() + self.max_runtime_seconds
+        failure_stage = "generate"
 
         def report_stage(stage: str) -> None:
             if time.monotonic() >= deadline:
@@ -92,7 +77,11 @@ class JobRunner:
 
         def time_out_job() -> None:
             try:
-                if self.store.fail_if_running(job_id, USER_ERROR):
+                if self.store.fail_if_running(
+                    job_id,
+                    USER_ERROR,
+                    failure=describe_failure(TimeoutError(), stage=failure_stage),
+                ):
                     output_path.unlink(missing_ok=True)
                     log.warning("job %s exceeded its time limit", job_id)
             except Exception:
@@ -111,7 +100,9 @@ class JobRunner:
                     progress_callback=report_stage,
                     usage_callback=token_counts.update,
                     provider_limit_callback=lambda: self.store.fail_if_running(
-                        job_id, str(ProviderLimitError())
+                        job_id,
+                        str(ProviderLimitError()),
+                        failure=describe_failure(ProviderLimitError()),
                     ),
                 )
             else:
@@ -120,6 +111,7 @@ class JobRunner:
             if time.monotonic() >= deadline:
                 raise TimeoutError("deck generation exceeded its time limit")
             report_stage("Rendering PowerPoint")
+            failure_stage = "render"
             if deck.design_version == "gamma-v1":
                 from app.qa.gate import build_checked
 
@@ -163,7 +155,7 @@ class JobRunner:
                     safe_label(str(exc.reason)) if hasattr(exc, "reason") else None,
                     safe_label(str(exc.stage)) if hasattr(exc, "stage") else None,
                     exc.slide_index if type(getattr(exc, "slide_index", None)) is int else None,
-                    _failure_location(exc),
+                    failure_location(exc),
                 )
             if isinstance(exc, DeckReviewError):
                 log.error(
@@ -175,7 +167,9 @@ class JobRunner:
                 )
             try:
                 self.store.mark_failed(
-                    job_id, str(exc) if isinstance(exc, ProviderLimitError) else USER_ERROR
+                    job_id,
+                    str(exc) if isinstance(exc, ProviderLimitError) else USER_ERROR,
+                    failure=describe_failure(exc, stage=failure_stage),
                 )
             except Exception:
                 log.exception("could not persist failed state for job %s", job_id)

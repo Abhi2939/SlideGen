@@ -136,6 +136,7 @@ def get_job(
         error=job.error,
         stage=job.stage,
         queue_position=request.app.state.runner.store.queue_position(job.id),
+        failure=job.failure,
     )
 
 
