@@ -8,6 +8,7 @@ from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
 import sqlite3
+import shutil
 import threading
 import uuid
 from typing import Iterator
@@ -260,4 +261,13 @@ class JobStore:
                 except ValueError:
                     continue
                 candidate.unlink(missing_ok=True)
+            qa_folder = self.output_dir / (row["id"] + ".qa")
+            resolved_qa = qa_folder.resolve()
+            if (
+                not qa_folder.is_symlink()
+                and resolved_qa.parent == self.output_dir.resolve()
+                and resolved_qa.name == row["id"] + ".qa"
+                and resolved_qa.is_dir()
+            ):
+                shutil.rmtree(resolved_qa)
         return len(rows)

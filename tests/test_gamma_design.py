@@ -5,6 +5,8 @@ from pptx.util import Inches
 
 from app.qa.lint import lint_pptx
 from app.render.common import add_text
+from app.render.common import add_rect
+from pptx.oxml.xmlchemy import OxmlElement
 from app.render.grid import GRID
 from app.render.theme import THEMES, contrast, rgb, theme_for_topic
 
@@ -59,3 +61,14 @@ def test_lint_reads_actual_bad_export(tmp_path):
         "blank_content_over_45_percent",
     } <= codes
     json.dumps(result)
+
+
+def test_lint_catches_drawing_xml_that_can_trigger_office_repair(tmp_path):
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    shape = add_rect(slide, Inches(1), Inches(2), Inches(3), Inches(1), rgb("552B40"))
+    shape._element.spPr.append(OxmlElement("a:effectLst"))
+    path = tmp_path / "invalid-drawing.pptx"
+    prs.save(path)
+    result = lint_pptx(path, whitespace=False)
+    assert any(e["code"] == "duplicate_drawing_property" for e in result["errors"])

@@ -538,7 +538,7 @@ def test_exhausted_workflow_json_can_complete_from_source_phrases_without_invent
     import json
     from app.config import Settings
     from app.core.errors import StructuredOutputError
-    from app.pipeline.orchestrator import generate_deck
+    from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
     from app.render.builder import build_deck
     from pptx import Presentation
 

@@ -3,6 +3,7 @@ from pathlib import Path
 import sqlite3
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -18,6 +19,24 @@ FIXTURE = Path(__file__).parent / "fixtures" / "decks" / "all_layouts.json"
 
 def fixture_deck() -> Deck:
     return Deck.model_validate(json.loads(FIXTURE.read_text(encoding="utf-8")))
+
+
+def test_expiration_removes_successful_and_failed_visual_reports(tmp_path):
+    store = JobStore(tmp_path, retention_hours=1)
+    for failed in (False, True):
+        job = store.create("A test brief")
+        folder = store.output_dir / (job.id + ".qa")
+        (folder / "1").mkdir(parents=True)
+        (folder / "1/slide-01.png").write_bytes(b"preview")
+        if failed:
+            store.mark_failed(job.id, "visual check failed")
+        else:
+            output = store.output_dir / (job.id + ".pptx")
+            output.write_bytes(b"deck")
+            store.mark_running(job.id)
+            store.mark_done(job.id, output)
+    assert store.cleanup_expired(now=datetime.now(timezone.utc) + timedelta(hours=2)) == 2
+    assert list(store.output_dir.iterdir()) == []
 
 
 def wait_for_status(store: JobStore, job_id: str, expected: str):
@@ -120,7 +139,7 @@ def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
     from app.config import Settings
     from app.llm.client import LLMClient
     from app.llm.structured import StructuredGenerator
-    from app.pipeline.orchestrator import generate_deck
+    from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
     from test_llm_structured import parse_error
     from test_pipeline_orchestrator import FakePipelineGenerator
 
@@ -167,7 +186,7 @@ def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
 
 def test_job_corrects_out_of_range_review_references_and_saves_powerpoint(tmp_path):
     from app.config import Settings
-    from app.pipeline.orchestrator import generate_deck
+    from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
     from pptx import Presentation
     from test_pipeline_orchestrator import FakePipelineGenerator
 

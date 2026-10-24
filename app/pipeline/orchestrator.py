@@ -21,7 +21,7 @@ from app.pipeline.write_slides import write_slides
 log = logging.getLogger(__name__)
 
 
-def generate_deck(
+def generate_legacy_deck(
     prompt: str,
     *,
     settings: Settings | None = None,
@@ -155,3 +155,17 @@ def generate_deck(
                 usage_callback(counts)
             else:
                 log.info("pipeline token usage: %s", counts)
+
+
+def generate_deck(prompt: str, *, design: str | None = None, **kwargs) -> Deck:
+    """The editorial story pipeline is the default; legacy remains explicit for rollback."""
+    import os
+
+    selected = design or os.getenv("SLIDEGEN_DESIGN_PIPELINE", "editorial")
+    if selected == "legacy":
+        return generate_legacy_deck(prompt, **kwargs)
+    if selected != "editorial":
+        raise ValueError("SLIDEGEN_DESIGN_PIPELINE must be editorial or legacy")
+    from app.pipeline.editorial import generate_editorial_deck
+
+    return generate_editorial_deck(prompt, **kwargs)

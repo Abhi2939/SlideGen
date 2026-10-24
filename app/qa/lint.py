@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 from pptx import Presentation
 from pptx.enum.dml import MSO_COLOR_TYPE
+from pptx.oxml.ns import qn
 
 from app.render.measure import measure_text
 from app.render.theme import contrast
@@ -72,6 +73,20 @@ def lint_pptx(path: str | Path, *, whitespace=True):
             shapes.extend(list(group.shapes))
         bg = _color(slide.background.fill.fore_color) if slide.background.fill.type == 1 else None
         for shape in shapes:
+            properties = shape._element.find(qn("p:spPr"))
+            if properties is not None:
+                for property_name in (
+                    "xfrm",
+                    "prstGeom",
+                    "custGeom",
+                    "ln",
+                    "effectLst",
+                    "effectDag",
+                    "scene3d",
+                    "sp3d",
+                ):
+                    if len(properties.findall(qn("a:" + property_name))) > 1:
+                        issue("duplicate_drawing_property", shape)
             box = rect(shape)
             x, y, w, h = box
             bleed = shape.name.startswith(("Layer:hero", "Layer:overlay", "Layer:background"))
@@ -163,6 +178,8 @@ def lint_pptx(path: str | Path, *, whitespace=True):
                 boxes.append(rect(group))
         cards = []
         for card in (s for s in shapes if s.name.startswith("Layer:card")):
+            if rect(card)[2] < 2.399:
+                issue("card_narrower_than_2_4_inches", card)
             inner_height = max(0.01, rect(card)[3] - 0.5)
             filled_height = 0
             for child in shapes:

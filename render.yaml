@@ -12,6 +12,10 @@ services:
       mountPath: /var/data
       sizeGB: 1
     envVars:
+      - key: SLIDEGEN_DESIGN_PIPELINE
+        value: editorial
+      - key: SLIDEGEN_VISION_MODEL
+        value: qwen/qwen3.8-27b
       - key: SLIDEGEN_ASSETS_ENABLED
         value: "true"
       - key: SLIDEGEN_CURATED_PHOTOS_ENABLED

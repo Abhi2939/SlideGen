@@ -249,6 +249,8 @@ class StorySlide(_SlideBase):
     icon_names: list[str] = Field(default_factory=list, max_length=6)
     notes: str | None = Field(default=None, max_length=1500)
     illustrative: bool = False
+    image_focus: Literal["center", "left", "right", "top", "bottom"] = "center"
+    layout_variant: int = Field(default=0, ge=0, le=2)
 
     @model_validator(mode="after")
     def _complete_regions(self):

@@ -24,6 +24,7 @@ class AssetSettings:
     budget_seconds: float = 20
     cache_max_bytes: int = 128 * 1024 * 1024
     curated_photos: bool = True
+    unsplash_key: str | None = None
 
     @classmethod
     def from_env(cls):
@@ -34,6 +35,7 @@ class AssetSettings:
                 or Path(os.getenv("SLIDEGEN_DATA_DIR", "data")) / "assets"
             ),
             pexels_key=os.getenv("PEXELS_API_KEY") or None,
+            unsplash_key=os.getenv("UNSPLASH_ACCESS_KEY") or None,
             curated_photos=os.getenv("SLIDEGEN_CURATED_PHOTOS_ENABLED", "true").lower()
             in {"1", "true", "yes"},
         )
@@ -100,13 +102,80 @@ class AssetResolver:
     def __init__(self, settings=None):
         self.settings = settings or AssetSettings.from_env()
 
+    def _photo_candidates(self, query, variant):
+        """Search configured APIs, then use source-attributed open downloads."""
+        if self.settings.pexels_key:
+            try:
+                params = urlencode({"query": query, "per_page": 1, "page": variant + 1})
+                data, kind = download(
+                    f"https://api.pexels.com/v1/search?{params}",
+                    headers={"Authorization": self.settings.pexels_key},
+                    max_bytes=256_000,
+                )
+                if kind == "application/json":
+                    for photo in json.loads(data).get("photos", []):
+                        yield (
+                            photo["src"]["large"],
+                            photo["url"],
+                            photo["photographer"],
+                            "Pexels License; API attribution required; https://www.pexels.com/license/",
+                        )
+            except Exception:
+                pass
+        if self.settings.unsplash_key:
+            try:
+                params = urlencode({"query": query, "per_page": 1, "page": variant + 1})
+                data, kind = download(
+                    f"https://api.unsplash.com/search/photos?{params}",
+                    headers={"Authorization": "Client-ID " + self.settings.unsplash_key},
+                    max_bytes=256_000,
+                )
+                if kind == "application/json":
+                    for photo in json.loads(data).get("results", []):
+                        # Record the API-required download event without following its redirect.
+                        location = photo.get("links", {}).get("download_location")
+                        if location:
+                            download(
+                                location,
+                                headers={
+                                    "Authorization": "Client-ID " + self.settings.unsplash_key
+                                },
+                                max_bytes=256_000,
+                            )
+                        yield (
+                            photo["urls"]["regular"],
+                            photo["links"]["html"],
+                            photo["user"]["name"],
+                            "Unsplash API attribution required; https://unsplash.com/license",
+                        )
+            except Exception:
+                pass
+        if self.settings.curated_photos:
+            from app.assets.photos import PHOTO_CATALOG
+
+            category = query if query in PHOTO_CATALOG else topic_query(query)
+            choices = PHOTO_CATALOG.get(category, ())
+            if choices:
+                photo = curated_photo(category, variant % len(choices))
+                yield (
+                    photo["src"]["large"],
+                    photo["url"],
+                    photo["photographer"],
+                    "Pexels License; https://www.pexels.com/license/",
+                )
+
     def _resolve(self, role, query, variant):
         settings = self.settings
-        if role == "photo" and not settings.pexels_key and not settings.curated_photos:
+        if (
+            role == "photo"
+            and not settings.pexels_key
+            and not settings.unsplash_key
+            and not settings.curated_photos
+        ):
             return None
         identity = f"v1:{role}:{query}:{variant}"
         if role == "photo":
-            identity += ":api" if settings.pexels_key else ":curated-v1"
+            identity += f":photo-v3:{bool(settings.pexels_key)}:{bool(settings.unsplash_key)}"
         digest = hashlib.sha256(identity.encode()).hexdigest()
         meta = settings.cache_dir / f"{digest}.json"
         image_path = settings.cache_dir / f"{digest}.png"
@@ -120,34 +189,26 @@ class AssetResolver:
             pass
         photographer = None
         if role == "photo":
-            if settings.pexels_key:
-                params = urlencode(
-                    {"query": query, "per_page": 1, "page": variant + 1, "orientation": "portrait"}
-                )
-                data, content_type = download(
-                    f"https://api.pexels.com/v1/search?{params}",
-                    headers={"Authorization": settings.pexels_key},
-                    max_bytes=256_000,
-                )
-                if content_type != "application/json":
-                    return None
-                photos = json.loads(data).get("photos", [])
-                photo = photos[0] if photos else None
-            else:
-                from app.assets.photos import PHOTO_CATALOG
-
-                choices = PHOTO_CATALOG.get(query, ())
-                photo = curated_photo(query, variant % len(choices)) if choices else None
-            if photo is None:
+            candidates = self._photo_candidates(query, variant)
+            png = None
+            for url, source, photographer, licence in candidates:
+                if urlsplit(source).scheme != "https" or urlsplit(source).hostname not in {
+                    "www.pexels.com",
+                    "unsplash.com",
+                }:
+                    continue
+                if any(not c.isprintable() for c in source):
+                    continue
+                try:
+                    data, content_type = download(url)
+                    png = image_png(data, content_type)
+                    break
+                except Exception:
+                    continue
+            if png is None:
                 return None
-            url = photo["src"]["large"]
-            source = photo["url"]
-            if urlsplit(source).scheme != "https" or urlsplit(source).hostname != "www.pexels.com":
-                return None
-            if any(not character.isprintable() for character in source):
-                return None
-            photographer = "".join(c for c in str(photo["photographer"]) if c.isprintable())[:120]
-            licence = "Pexels License; https://www.pexels.com/license/; illustrative stock photo, no endorsement"
+            photographer = "".join(c for c in str(photographer) if c.isprintable())[:120]
+            licence += "; illustrative stock photo, no endorsement"
         elif role == "icon":
             url = f"https://api.iconify.design/lucide/{query}.svg?color=%23{variant}"
             source, licence = url, "Lucide ISC / Feather-derived MIT; https://lucide.dev/license"
@@ -155,8 +216,9 @@ class AssetResolver:
             url = f"https://cdn.simpleicons.org/{query}"
             source = url
             licence = "Simple Icons CC0 collection; individual brand terms/trademarks apply; https://simpleicons.org/"
-        data, content_type = download(url)
-        png = image_png(data, content_type)
+        if role != "photo":
+            data, content_type = download(url)
+            png = image_png(data, content_type)
         record = {
             "role": role,
             "query": query,
@@ -195,14 +257,27 @@ class AssetResolver:
                         "big_stat",
                         "quote",
                         "closing_cta",
+                        "three_cards",
+                        "four_cards",
+                        "grid_2x2",
+                        "comparison",
+                        "process_steps",
                     }:
+                        asset_query = slide.image_query or query
+                        if not (self.settings.pexels_key or self.settings.unsplash_key):
+                            from app.assets.photos import PHOTO_CATALOG
+
+                            asset_query = topic_query(asset_query)
+                            if asset_query not in PHOTO_CATALOG:
+                                asset_query = query
                         plans.append(
                             (
                                 index,
                                 "hero",
                                 "photo",
-                                topic_query(slide.image_query or query),
-                                photo_number,
+                                asset_query,
+                                photo_number
+                                + (slide.layout_variant if slide.archetype != "cover" else 0),
                             )
                         )
                         photo_number += 1

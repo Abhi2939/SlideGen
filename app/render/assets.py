@@ -25,7 +25,7 @@ def find_asset(key):
     return next((asset for asset in _assets.get() if asset.key == key), None)
 
 
-def add_asset(slide, key, x, y, w, h, *, crop=False):
+def add_asset(slide, key, x, y, w, h, *, crop=False, focus="center"):
     asset = find_asset(key)
     if asset is None:
         return False
@@ -47,9 +47,13 @@ def add_asset(slide, key, x, y, w, h, *, crop=False):
                 str(path), Inches(x), Inches(y), Inches(w), Inches(h)
             )
             if aspect > target:
-                picture.crop_left = picture.crop_right = (1 - target / aspect) / 2
+                excess = 1 - target / aspect
+                picture.crop_left = excess * ({"left": 0.25, "right": 0.75}.get(focus, 0.5))
+                picture.crop_right = excess - picture.crop_left
             else:
-                picture.crop_top = picture.crop_bottom = (1 - aspect / target) / 2
+                excess = 1 - aspect / target
+                picture.crop_top = excess * ({"top": 0.25, "bottom": 0.75}.get(focus, 0.5))
+                picture.crop_bottom = excess - picture.crop_top
         picture.name = f"Resolved {asset.role}: {key}"
         return True
     except Exception:

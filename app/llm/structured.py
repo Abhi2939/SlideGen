@@ -105,6 +105,7 @@ class StructuredGenerator:
         temperature: float = 0.2,
         max_tokens: int | None = None,
         response_schema: Mapping[str, Any] | None = None,
+        image_urls: list[str] | None = None,
     ) -> T:
         # A stage may narrow references to the current job's IDs. The output
         # model and stage validators remain authoritative after generation.
@@ -120,7 +121,15 @@ class StructuredGenerator:
                     f"{json.dumps(schema, ensure_ascii=False)}"
                 ),
             },
-            {"role": "user", "content": user_prompt},
+            {
+                "role": "user",
+                "content": user_prompt
+                if not image_urls
+                else [
+                    {"type": "text", "text": user_prompt},
+                    *[{"type": "image_url", "image_url": {"url": url}} for url in image_urls],
+                ],
+            },
         ]
         last_detail = "no response"
         request_format = recovery_format(model, output_model.__name__, schema)

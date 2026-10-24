@@ -2,6 +2,22 @@
 
 SlideGen turns a natural-language prompt into a structured presentation, reviews the generated content, and renders a downloadable PowerPoint (`.pptx`) file. You can use the command-line interface or the FastAPI web app.
 
+## Editorial generator
+
+The default pipeline now plans an 8–10 slide story, chooses a topic theme, and writes each slide as structured JSON without coordinates. Geometry belongs to the renderer. Six curated themes cover beauty, fintech, health, edtech, climate and bold/dark moods. Beauty uses cream, rose and plum. Body colors meet 4.5:1 contrast on the theme backgrounds.
+
+The editable renderer uses title/body placeholders, a themed master, a 13.333 × 7.5 inch canvas, 0.6 inch safe margins, and a 12-column grid. It supports cover, split image, three/four cards, straight horizontal timeline, big stat, quote, comparison, process, 2×2 grid and closing CTA. Text starts at 54/36/22/18/14 pt, shrinks by at most 10%, and otherwise requires reflow or splitting. Unresolved icons are omitted. There are no decorative corner icons. Credits, internal notes and illustrative-number disclosures stay in speaker notes, with visible credit where an API requires it.
+
+Before an editorial file becomes downloadable, `app.qa.gate.build_checked` exports and lints the actual PPTX, renders it through LibreOffice/PyMuPDF, and sends every slide image to a Groq vision model. It requires zero lint errors and every visual score ≥8, repairs and re-renders for at most three attempts, and fails closed on exhausted checks or unavailable review. Exactly unchanged PNGs that previously passed can reuse their approved score, with SHA-256 evidence in the report. No unavailable provider is replaced with a fabricated score.
+
+`GET /debug/{deck_id}` returns the report and PNG links for a known job, including unsuccessful QA attempts. `GET /debug/{deck_id}/{iteration}/slide-01.png` serves an individual preview. Reports and previews live beside the output in `<deck_id>.qa/` and expire with the job's output data.
+
+Set `PEXELS_API_KEY` and/or `UNSPLASH_ACCESS_KEY` for topic-specific photo search. A source-attributed stock catalog supports beauty, finance and education without those keys. Assets are downloaded and cached before rendering. `SLIDEGEN_VISION_MODEL` defaults to `qwen/qwen3.8-27b`; see [Groq's current vision documentation](https://console.groq.com/docs/vision) before changing it. The Docker image includes LibreOffice, fonts and PyMuPDF. Production needs enough Groq quota for copy plus image review.
+
+For local evaluation, run `python scripts/live_design.py blush --output-dir outputs/qa/blush --resume --checked`, then use `fintech` and `edtech` with separate directories. `--resume` reuses only identical successful local provider requests. `scripts/design_preview.py` exercises the renderer with an authored fixture; it is not evidence of live LLM generation. Application-specific PowerPoint and Google Slides compatibility still requires opening the resulting file in those applications.
+
+The older pipeline remains available only through `SLIDEGEN_DESIGN_PIPELINE=legacy`. Descriptions of four-to-six slides, navy/green beauty styling, or visible conceptual-workflow notes in the historical sections below describe that legacy pipeline.
+
 **Live demo:** [slidegen-edz9.onrender.com](https://slidegen-edz9.onrender.com/)
 
 Implementation status (2026-10-24): reference styling now extends to generic layouts, and an optional cached asset stage resolves icons, prompt-named competitor logos, and Pexels photos before deterministic rendering. Content guards reject unsupported CTAs and allow fewer fuller slides when no exact count was requested. The original 260-test checkpoint is historical; current results and live limitations are recorded below. LibreOffice inspection does not replace real PowerPoint or client acceptance.

@@ -14,7 +14,7 @@ from app.llm.structured import StructuredGenerator
 from app.llm.usage import TokenUsage, record_usage, usage_scope
 from app.pipeline.models import AnalysisOutput
 from app.config import Settings
-from app.pipeline.orchestrator import generate_deck
+from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 from test_jobs import wait_for_status
 
 

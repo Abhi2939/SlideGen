@@ -59,7 +59,7 @@ def test_full_fake_pipeline_embeds_images_and_sources_without_render_network(
 ):
     from test_blush_prompt import BlushGenerator, PROMPT
     from app.config import Settings
-    from app.pipeline.orchestrator import generate_deck
+    from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 
     resolver = AssetResolver(AssetSettings(cache_dir=tmp_path / "cache", pexels_key="FAKE_KEY"))
     monkeypatch.setattr("app.pipeline.orchestrator.prepare_assets", resolver.resolve)
@@ -109,8 +109,8 @@ def test_missing_photo_key_does_not_make_http_request(tmp_path, fake_http):
 def test_curated_photos_use_only_fixed_topic_sources_and_cache_without_api_key(tmp_path, fake_http):
     resolver = AssetResolver(AssetSettings(cache_dir=tmp_path))
     photo = resolver._resolve("photo", "cosmetics makeup", 0)
-    assert photo["photographer"] == "DS stories"
-    assert photo["source_url"].endswith("white-surface-7256097/")
+    assert photo["photographer"] == "Atlantic Ambience"
+    assert photo["source_url"].endswith("a-flatlay-of-cosmetics-12955707/")
     assert len(fake_http) == 1
     assert fake_http[0].headers["host"] == "images.pexels.com"
     assert "authorization" not in fake_http[0].headers
@@ -158,7 +158,7 @@ def test_generic_deck_name_uses_slide_topic_for_curated_photos(tmp_path, fake_ht
 def test_full_curated_fake_pipeline_saves_images_credit_and_notes(tmp_path, monkeypatch, fake_http):
     from test_blush_prompt import BlushGenerator, PROMPT
     from app.config import Settings
-    from app.pipeline.orchestrator import generate_deck
+    from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 
     resolver = AssetResolver(AssetSettings(cache_dir=tmp_path / "cache"))
     monkeypatch.setattr("app.pipeline.orchestrator.prepare_assets", resolver.resolve)
@@ -167,14 +167,14 @@ def test_full_curated_fake_pipeline_saves_images_credit_and_notes(tmp_path, monk
         settings=Settings("groq", None, "fake", None, None, None, None, 2),
         generator=BlushGenerator(),
     )
-    assert any(asset.photographer == "DS stories" for asset in deck.assets)
+    assert any(asset.photographer == "Atlantic Ambience" for asset in deck.assets)
     assert not any(r.headers["host"] == "api.pexels.com" for r in fake_http)
     monkeypatch.setattr(
         "app.assets.resolve.download", lambda *a, **k: pytest.fail("Rendering fetched an image")
     )
     presentation = Presentation(build_deck(deck, tmp_path / "curated.pptx", strict=True))
     assert any(shape.shape_type == 13 for shape in presentation.slides[0].shapes)
-    assert "DS stories" in presentation.slides[0].notes_slide.notes_text_frame.text
+    assert "Atlantic Ambience" in presentation.slides[0].notes_slide.notes_text_frame.text
     assert any(
         shape.has_text_frame and "Illustrative stock photo" in shape.text
         for shape in presentation.slides[0].shapes

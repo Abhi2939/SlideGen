@@ -9,6 +9,11 @@ Source pages and photographer credits were checked on 2026-10-24.
 PHOTO_CATALOG = {
     "cosmetics makeup": (
         (
+            "12955707/pexels-photo-12955707.jpeg",
+            "a-flatlay-of-cosmetics-12955707",
+            "Atlantic Ambience",
+        ),
+        (
             "7256097/pexels-photo-7256097.jpeg",
             "close-up-shot-of-cosmetic-products-on-a-white-surface-7256097",
             "DS stories",
@@ -22,11 +27,6 @@ PHOTO_CATALOG = {
             "37356602/pexels-photo-37356602/free-photo-of-flat-lay-of-makeup-products-on-white-background.jpeg",
             "flat-lay-of-makeup-products-on-white-background-37356602",
             "Letícia Alvares",
-        ),
-        (
-            "12955707/pexels-photo-12955707.jpeg",
-            "a-flatlay-of-cosmetics-12955707",
-            "Atlantic Ambience",
         ),
         ("3552894/pexels-photo-3552894.jpeg", "photo-of-beauty-products-3552894", "Nothing Ahead"),
     ),

@@ -5,7 +5,7 @@ from app.config import Settings
 from app.core.deck_schema import BulletsSlide, ClosingSlide, TitleSlide
 from app.core.errors import DeckReviewError
 from app.pipeline.models import AnalysisOutput, OutlineOutput, ReviewOutput
-from app.pipeline.orchestrator import generate_deck
+from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 
 
 class FakePipelineGenerator:

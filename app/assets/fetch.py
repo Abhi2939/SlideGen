@@ -13,7 +13,14 @@ import resvg_py
 
 
 FETCH_HOSTS = frozenset(
-    {"api.iconify.design", "cdn.simpleicons.org", "api.pexels.com", "images.pexels.com"}
+    {
+        "api.iconify.design",
+        "cdn.simpleicons.org",
+        "api.pexels.com",
+        "images.pexels.com",
+        "api.unsplash.com",
+        "images.unsplash.com",
+    }
 )
 MAX_BYTES = 5 * 1024 * 1024
 MAX_PIXELS = 8_000_000

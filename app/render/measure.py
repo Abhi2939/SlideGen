@@ -16,10 +16,11 @@ def font_metrics(name, size, bold=False):
         if serif
         else [win / ("calibrib.ttf" if bold else "calibri.ttf")]
     )
-    names += [
-        Path("/usr/share/fonts/truetype/crosextra")
-        / ("Carlito-Bold.ttf" if bold else "Carlito-Regular.ttf")
-    ]
+    if not serif:
+        names += [
+            Path("/usr/share/fonts/truetype/crosextra")
+            / ("Carlito-Bold.ttf" if bold else "Carlito-Regular.ttf")
+        ]
     names += [
         Path("/usr/share/fonts/truetype/liberation2")
         / (f"Liberation{'Serif' if serif else 'Sans'}-{'Bold' if bold else 'Regular'}.ttf")

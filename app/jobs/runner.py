@@ -103,7 +103,18 @@ class JobRunner:
             if time.monotonic() >= deadline:
                 raise TimeoutError("deck generation exceeded its time limit")
             report_stage("Rendering PowerPoint")
-            self.build(deck, output_path)
+            if deck.design_version == "gamma-v1":
+                from app.qa.gate import build_checked
+
+                build_checked(
+                    deck,
+                    output_path,
+                    source_prompt=job.prompt,
+                    deadline=deadline,
+                    progress_callback=report_stage,
+                )
+            else:
+                self.build(deck, output_path)
             if time.monotonic() >= deadline:
                 raise TimeoutError("deck generation exceeded its time limit")
             self.store.mark_done(job_id, output_path)

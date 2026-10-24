@@ -47,7 +47,12 @@ def main() -> int:
     except SlideWriteError as error:
         print(f"Generation failed: {error}", file=sys.stderr)
         return 1
-    output = build_deck(deck, args.output, strict=True)
+    if deck.design_version == "gamma-v1":
+        from app.qa.gate import build_checked
+
+        output = build_checked(deck, args.output, source_prompt=" ".join(args.prompt))
+    else:
+        output = build_deck(deck, args.output, strict=True)
     print(f"Created {output.resolve()}")
     return 0
 

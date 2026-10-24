@@ -141,10 +141,3 @@ def add_blush_product_art(slide, theme: Theme, x, y, scale: float = 1.0) -> None
         bold=True,
         align=PP_ALIGN.CENTER,
     )
-
-
-def add_blush_corner_accent(slide, theme: Theme, x, y) -> None:
-    """Add a restrained decorative accent without covering slide content."""
-    dot = Inches(0.14)
-    for index, color in enumerate((theme.accent, theme.chart_colors[2], theme.chart_colors[3])):
-        add_rect(slide, x + dot * index * 1.5, y, dot, dot, color, MSO_SHAPE.OVAL)

@@ -40,6 +40,10 @@ def _drop_slides_after(prs, n):
 
 def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
     theme = get_theme(deck.theme)
+    if deck.design_version == "gamma-v1" and theme.name == "default":
+        from app.render.theme import theme_for_topic
+
+        theme = get_theme(theme_for_topic(deck.title))
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
@@ -63,6 +67,10 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
                     slide = renderer(prs, data, theme)
         except Exception as exc:
             if strict:
+                from app.render.measure import TextNeedsSplit
+
+                if isinstance(exc, TextNeedsSplit):
+                    exc.slide_index = index
                 raise
             log.warning(
                 "layout %s failed, using fallback (type=%s)", data.layout, type(exc).__name__

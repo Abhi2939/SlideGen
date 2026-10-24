@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 RUN apt-get update \
-    && apt-get install --no-install-recommends -y gosu \
+    && apt-get install --no-install-recommends -y gosu libreoffice-impress fonts-crosextra-carlito fonts-liberation2 \
     && rm -rf /var/lib/apt/lists/*
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

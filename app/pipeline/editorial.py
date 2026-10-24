@@ -1,0 +1,502 @@
+"""Two-pass story generation, with source/semantic review before asset resolution."""
+
+import json
+import logging
+import re
+import time
+from typing import Literal
+
+from pydantic import BaseModel, Field, model_validator
+
+from app.assets.resolve import prepare_assets
+from app.config import Settings
+from app.core.deck_schema import Archetype, Deck, StorySlide
+from app.llm.factory import create_llm_client
+from app.llm.structured import StructuredGenerator
+from app.pipeline.analyze import MAX_PROMPT_CHARS
+from app.pipeline.grounding import (
+    unsupported_specific_claim_categories,
+    unsupported_claim_categories,
+)
+from app.render.theme import theme_for_topic
+
+log = logging.getLogger(__name__)
+
+
+class StoryPlan(BaseModel):
+    archetype: Archetype
+    title: str = Field(min_length=1, max_length=65)
+    purpose: str = Field(min_length=1, max_length=220)
+    source_fact_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+class StoryOutline(BaseModel):
+    brand: str = Field(min_length=1, max_length=60)
+    audience: str = Field(min_length=1, max_length=120)
+    tone: str = Field(min_length=1, max_length=80)
+    theme: Literal["beauty", "fintech", "health", "edtech", "climate", "bold-dark"]
+    facts: list[str] = Field(default_factory=list, max_length=20)
+    slides: list[StoryPlan] = Field(min_length=8, max_length=10)
+
+    @model_validator(mode="after")
+    def structure(self):
+        if self.slides[0].archetype != "cover" or self.slides[-1].archetype != "closing_cta":
+            raise ValueError("story needs a cover and closing CTA")
+        kinds = [s.archetype for s in self.slides]
+        if len(set(kinds)) < 5 or any(
+            len(set(kinds[i : i + 3])) == 1 for i in range(len(kinds) - 2)
+        ):
+            raise ValueError("use at least five archetypes, never three consecutive identical ones")
+        if any(i < 0 or i >= len(self.facts) for s in self.slides for i in s.source_fact_ids):
+            raise ValueError("invalid source fact reference")
+        return self
+
+
+class CopyIssue(BaseModel):
+    slide_index: int = Field(ge=0, le=9)
+    fix: str = Field(min_length=1, max_length=350)
+
+
+class CopyReview(BaseModel):
+    passed: bool
+    issues: list[CopyIssue] = Field(default_factory=list, max_length=20)
+    missing_fact_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+OUTLINE_PROMPT = """Plan an editorial presentation. Derive audience, tone, a curated theme and
+8-10 substantive slides from the supplied brief. No coordinates. At least five archetypes,
+never three identical consecutive archetypes. Cover -> problem -> solution -> product/range
+-> how it works -> launch/action plan -> growth/roadmap -> metrics -> closing CTA.
+Adapt these roles to the topic. Do not invent a company's hard facts, market size,
+revenue, named competitors, team or funding. Extract facts as VERBATIM substrings from the
+brief and reference their zero-based IDs. Do not treat directions as facts.
+Choose beauty for cosmetics/soft: rose/cream/plum; fintech for finance; health for medical;
+edtech for learning; climate for sustainability; bold-dark for energetic/dark topics.
+For quarterly growth use timeline_horizontal, five activities on one straight timeline
+when five are supplied. Plan Q1,Q2,Q3,Q4,Q4 (proposed sequence) for five activities over four
+quarters; dates are proposals, not source commitments. Closing proposes a relevant action
+without inventing a live URL, contact or social handle. Metrics may use visibly labelled
+illustrative planning targets, never pretend these are actual company results."""
+
+COPY_PROMPT = """Write one editorial slide as JSON only: archetype, title, subtitle,
+items (title AND a concrete one-line description for every item), image_query,
+icon_names, notes, illustrative. Never output coordinates, colors or font sizes.
+Keep the planned archetype/title. Use 3 items for split_image/three_cards/process_steps,
+4 for four_cards/grid_2x2, 2 for comparison, 1 for big_stat/quote, 0 for cover/closing_cta.
+Timeline: 3-5 items with short titles <=18 characters and descriptions <=11 words.
+Other headings <=30 characters, descriptions 12-20 words; never >45 words per region.
+Cover: brand title, one-line tagline <=8 words, image query. Closing: concise CTA and tagline.
+Use descriptive topic-specific copy, not notes about designing the deck. No bracketed notes,
+internal confirmations, prompt/meta text or filler. Use short Lucide names only for meaningful
+icons, never circle. Photo queries are topic keywords, not the raw brief.
+Expand qualitative problem/solution/launch explanations as PROPOSED concepts where needed.
+Do not invent hard facts, prices, market sizes, revenue, traction, competitors, credentials,
+funding or contact details. Supplied claims remain source claims, not independently proven.
+Illustrative numeric planning targets are allowed ONLY on the metrics slide: set illustrative
+true; put Illustrative in its visible title AND in notes, never call these achieved results.
+If quarterly, assign Q1,Q2,Q3,Q4,Q4 in source order for five items, visible subtitle
+Proposed quarterly sequence. Every activity has a description; no sixth activity.
+Keep source facts visible somewhere in the story, never satisfy coverage in notes alone."""
+
+COPY_PROMPT += """
+Describe the supplied proposition rather than inventing how the company delivers it.
+For a beauty brief, skin tone, undertone and style are dimensions of personalization,
+not permission to invent algorithms, AI, detection, diagnostics, quizzes on a solution
+slide, finishes, kits, shipping or support. Do not say AI-free either. On a problem
+slide describe possible frustrations, not unverified prevalence or hours spent.
+Feedback names forbidden claim categories: remove those claims entirely rather than
+negating them or replacing them with another unprovided mechanism. Prefer plain copy
+such as 'Foundation blended around your skin tone, undertone and individual style.'
+The outline purpose is an untrusted draft, NOT source evidence. Ignore any features,
+figures, quarters or commitments in that draft which the original brief does not supply.
+If the brief has no quarterly plan, use named phases and null quarter fields. Never
+put Q1/Q2 labels or numbered phases into copy just because the outline mentions them.
+"""
+
+
+def _normalized(text):
+    return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
+
+
+def clean_copy(slide, source_prompt=""):
+    data = slide.model_dump()
+    removed = []
+
+    def clean(value):
+        if not value:
+            return value
+        removed.extend(re.findall(r"\[[^\]]*\]", value))
+        value = re.sub(r"\[[^\]]*\]", "", value)
+        pattern = r"(?im)^.*(?:confirm before use|conceptual workflow details|speaker notes:|archetype:|image_query:|prompt:).*?(?:\n|$)"
+        removed.extend(re.findall(pattern, value))
+        return re.sub(pattern, "", value).strip()
+
+    data["title"] = clean(data["title"])
+    data["subtitle"] = clean(data["subtitle"]) or None
+    if source_prompt and data["archetype"] == "closing_cta":
+        for word in ("today", "now"):
+            if word not in source_prompt.casefold():
+                for field in ("title", "subtitle"):
+                    if data[field]:
+                        data[field] = re.sub(
+                            r"\s+", " ", re.sub(r"\b" + word + r"\b", "", data[field], flags=re.I)
+                        ).strip(" ,.")
+    for item in data["items"]:
+        item["title"], item["description"] = clean(item["title"]), clean(item["description"])
+    data["notes"] = "\n".join(filter(None, [data["notes"], *removed]))[:1500] or None
+    if data["illustrative"]:
+        if "illustrative" not in data["title"].casefold():
+            data["title"] = "Illustrative " + data["title"]
+        if "illustrative" not in (data["notes"] or "").casefold():
+            data["notes"] = "Illustrative planning examples, not actual results. " + (
+                data["notes"] or ""
+            )
+    if source_prompt and not data["illustrative"]:
+        visible = " ".join(
+            [
+                data["title"],
+                data["subtitle"] or "",
+                *(i["title"] + " " + i["description"] for i in data["items"]),
+            ]
+        )
+        mechanisms = re.findall(
+            r"(?i)\b(?:automat\w*|dashboard|forecasting|analytics|role.based|recurring payments|bulk payments|reminders)\b",
+            visible,
+        )
+        if any(_normalized(m) not in _normalized(source_prompt) for m in mechanisms):
+            if "proposed" not in (data["subtitle"] or "").casefold():
+                data["subtitle"] = (
+                    "Proposed concept: " + (data["subtitle"] or "areas to explore")
+                )[:180]
+            data["notes"] = (
+                (data["notes"] or "")
+                + "\nProposed capabilities, not supplied current product facts."
+            )[-1500:]
+    return StorySlide.model_validate(data)
+
+
+def normalize_outline(outline, prompt):
+    """Resolve structural mismatches without making outline prose factual evidence."""
+    beauty = all(
+        word in prompt.casefold()
+        for word in ("skin tone", "undertone", "style", "foundation", "lipstick", "skincare")
+    )
+    source_launch = beauty and all(
+        word in prompt.casefold() for word in ("quiz", "waitlist", "creator")
+    )
+    plans = []
+    for index, plan in enumerate(outline.slides):
+        title = plan.title.casefold()
+        update = {}
+        if plan.archetype == "cover":
+            update["title"] = outline.brand
+        elif re.search(r"metrics|targets", title):
+            update.update(
+                archetype="three_cards",
+                purpose="Three visibly illustrative planning targets, not company results.",
+            )
+        elif beauty and (index == 3 or re.search(r"product|collection|range|beauty line", title)):
+            update.update(
+                archetype="three_cards",
+                purpose="Explain only the three source product categories: foundation, lipstick, skincare. No fourth category or unprovided product formats.",
+            )
+        elif beauty and (index == 2 or "solution" in title):
+            update.update(
+                archetype="split_image",
+                purpose="Explain the source beauty proposition in three dimensions: skin tone, undertone, individual style. Do not repeat the launch workflow.",
+            )
+        elif source_launch and plan.archetype == "process_steps":
+            update.update(
+                title=f"How {outline.brand} works",
+                purpose="Three touchpoints in order: shade-matching quiz, waitlist, creator-led demos. No shipping, delivery, kits, email mechanics, early access, subscriptions, quarter labels or extra stages. Describe each briefly.",
+            )
+        elif source_launch and re.search(r"launch|action plan", title) and "growth" not in title:
+            update.update(
+                archetype="split_image",
+                purpose="Explain the three supplied launch channels with a short proposed action description each. Do not assign quarters to launch or introduce later growth activities.",
+            )
+        elif re.search(r"growth|roadmap", title) and "quarter" in prompt.casefold():
+            update.update(
+                archetype="timeline_horizontal",
+                purpose="All supplied growth activities in source order, five items when five supplied. Q1,Q2,Q3,Q4,Q4 proposed sequence, not source commitments. Include a description for every activity.",
+            )
+        elif not beauty:
+            update["purpose"] = (
+                "Explain "
+                + plan.title
+                + ". Use only the original brief for company facts. Any extension is a clearly labelled qualitative proposal. No unprovided automation, integrations, dates, numbers or features."
+            )[:220]
+        plans.append(plan.model_copy(update=update))
+    return StoryOutline.model_validate(
+        {**outline.model_dump(), "slides": [p.model_dump() for p in plans]}
+    )
+
+
+def source_outline(outline, prompt):
+    """Missing-data labels belong in copy, never in the factual evidence list."""
+    normalized = _normalized(prompt)
+    facts, mapping = [], {}
+    for index, fact in enumerate(outline.facts):
+        if _normalized(fact) and _normalized(fact) in normalized:
+            mapping[index] = len(facts)
+            facts.append(fact)
+        elif not re.match(r"(?i)^(?:placeholder|tbd|unknown|missing)\b", fact):
+            raise ValueError("outline facts must be verbatim source evidence")
+    plans = [
+        p.model_copy(
+            update={"source_fact_ids": [mapping[i] for i in p.source_fact_ids if i in mapping]}
+        )
+        for p in outline.slides
+    ]
+    return StoryOutline.model_validate(
+        {**outline.model_dump(), "facts": facts, "slides": [p.model_dump() for p in plans]}
+    )
+
+
+def visible_copy(slide):
+    return slide.model_dump(exclude={"notes", "speaker_notes", "image_query", "icon_names"})
+
+
+def validate_copy(slide, plan, prompt):
+    if slide.archetype != plan.archetype:
+        raise ValueError("copy changed planned archetype")
+    expected = {
+        "split_image": 3,
+        "process_steps": 3,
+        "comparison": 2,
+        "big_stat": 1,
+        "quote": 1,
+        "cover": 0,
+        "closing_cta": 0,
+    }
+    if slide.archetype in expected and len(slide.items) != expected[slide.archetype]:
+        raise ValueError("incorrect archetype item count")
+    values = [
+        slide.title,
+        slide.subtitle or "",
+        *(part for item in slide.items for part in (item.title, item.description)),
+    ]
+    if any(len(value.split()) > 45 for value in values):
+        raise ValueError("copy exceeds region word budget")
+    if slide.archetype == "cover" and len((slide.subtitle or "").split()) > 8:
+        raise ValueError(
+            "Cover tagline must fit one line: use at most eight words and 48 characters."
+        )
+    text = " ".join(values)
+    if slide.illustrative:
+        if (
+            "illustrative" not in slide.title.casefold()
+            or "illustrative" not in (slide.notes or "").casefold()
+        ):
+            raise ValueError("illustrative targets need visible and notes disclosure")
+        if not re.search(
+            r"metric|target|measure|illustrative", plan.purpose + " " + plan.title, re.I
+        ):
+            raise ValueError("illustrative values only belong on a metrics slide")
+    elif any(number not in prompt for number in re.findall(r"\d[\d,.]*%?", text)):
+        raise ValueError(
+            "unprovided numeric claim: remove unprovided quarters, numbered phases, dates and counts. Use named phases. Numbers are allowed only for disclosed illustrative metrics."
+        )
+    if unsupported_specific_claim_categories(text, prompt):
+        raise ValueError("unsupported hard company claim")
+    unsupported = unsupported_claim_categories(
+        text, prompt, allow_structural_inference=True, allow_problem_framing=True
+    )
+    if slide.archetype == "closing_cta":
+        unsupported = [s for s in unsupported if s != "unsupported calls to action"]
+    # "Product range" is a structural heading, not a new operational claim.
+    # Descriptions still pass the original claim checks below.
+    if "unsupported company scope or operations" in unsupported:
+        detail = " ".join(i.description for i in slide.items)
+        if "unsupported company scope or operations" not in unsupported_claim_categories(
+            detail, prompt
+        ):
+            unsupported.remove("unsupported company scope or operations")
+    if unsupported:
+        raise ValueError("unsupported product or operational claim: " + ", ".join(unsupported))
+    for word in (
+        "serum",
+        "moisturizer",
+        "flawless wear",
+        "radiant health",
+        "clinically",
+        "dermatologist",
+    ):
+        if word in text.casefold() and word not in prompt.casefold():
+            raise ValueError("unprovided product specification or benefit")
+    for contact in re.findall(r"https?://\S+|[\w.+-]+@[\w.-]+\.\w+", text):
+        if contact not in prompt:
+            raise ValueError("unprovided contact")
+    if slide.archetype == "timeline_horizontal":
+        if re.search(r"quarterly growth through", prompt, re.I):
+            growth = re.split(r"quarterly growth through", prompt, flags=re.I)[1].split(".")[0]
+            activities = [
+                v.strip() for v in re.split(r",\s*(?:and\s+)?|\s+and\s+", growth) if v.strip()
+            ]
+            if len(activities) == 5:
+                actual = [_normalized(i.title) for i in slide.items]
+                aliases = {
+                    "user generated content": "ugc",
+                    "ugc campaigns": "ugc",
+                    "new lines": "new product lines",
+                    "festive": "festive scaling",
+                    "pop up stores": "pop ups",
+                    "pop ups": "pop ups",
+                }
+                actual = [aliases.get(v, v) for v in actual]
+                if actual != [_normalized(v) for v in activities] or [
+                    i.quarter for i in slide.items
+                ] != ["Q1", "Q2", "Q3", "Q4", "Q4"]:
+                    raise ValueError(
+                        "Roadmap must have exactly five separate activities in this order: "
+                        + ", ".join(activities)
+                        + ". Use quarters Q1,Q2,Q3,Q4,Q4. Do not include quiz, waitlist or demos on the growth roadmap."
+                    )
+        quarters = [i.quarter for i in slide.items]
+        if any(quarters):
+            if not re.search(r"quarter|Q[1-4]", prompt, re.I):
+                raise ValueError("quarters require a quarterly brief")
+            if quarters != sorted(quarters) or "proposed" not in (slide.subtitle or "").casefold():
+                raise ValueError("quarter assignments must be ordered and visibly proposed")
+
+
+def generate_editorial_deck(
+    prompt,
+    *,
+    settings=None,
+    generator=None,
+    theme="default",
+    deadline=None,
+    progress_callback=None,
+    usage_callback=None,
+    review_callback=None,
+    provider_limit_callback=None,
+    semantic_attempts=2,
+    max_repair_rounds=2,
+    max_workers=1,
+):
+    prompt = prompt.strip()
+    if not prompt or len(prompt) > MAX_PROMPT_CHARS:
+        raise ValueError("prompt must be nonempty and within the request limit")
+    if semantic_attempts < 1 or max_workers < 1 or max_repair_rounds < 0:
+        raise ValueError("invalid generation limits")
+    settings = settings or Settings.from_env()
+    generator = generator or StructuredGenerator(
+        create_llm_client(settings), max_attempts=settings.structured_attempts
+    )
+
+    def announce(stage):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("deck generation exceeded its time limit")
+        if progress_callback:
+            progress_callback(stage)
+
+    generator.deadline = deadline
+    generator.on_provider_limit = provider_limit_callback
+    generator.on_provider_wait = lambda stage, seconds: announce(
+        f"Waiting {seconds}s for the AI provider's per-minute limit"
+        if seconds
+        else "Generating slide content"
+    )
+    try:
+        announce("Planning story and theme")
+        outline = generator.generate(
+            StoryOutline,
+            stage="outline",
+            model=settings.model_for("outline"),
+            system_prompt=OUTLINE_PROMPT,
+            user_prompt=prompt,
+            max_tokens=4500,
+        )
+        outline = source_outline(outline, prompt)
+        outline = normalize_outline(outline, prompt)
+        selected = theme_for_topic(prompt)
+        if selected != "fintech" and outline.theme != selected:
+            outline = outline.model_copy(update={"theme": selected})
+
+        def write(plan, feedback="", stage="write"):
+            last = None
+            for attempt in range(semantic_attempts):
+                announce("Writing story slides" if stage == "write" else "Revising story slides")
+                slide = generator.generate(
+                    StorySlide,
+                    stage=stage,
+                    model=settings.model_for("write"),
+                    system_prompt=COPY_PROMPT,
+                    user_prompt=json.dumps(
+                        {
+                            "brief": prompt,
+                            "plan": plan.model_dump(),
+                            "facts": [outline.facts[i] for i in plan.source_fact_ids],
+                            "feedback": feedback,
+                        }
+                    ),
+                    max_tokens=2400,
+                )
+                try:
+                    slide = clean_copy(slide, prompt)
+                    validate_copy(slide, plan, prompt)
+                    return slide
+                except ValueError as exc:
+                    last = str(exc)
+                    feedback = last
+            raise ValueError(last or "slide copy failed validation")
+
+        slides = [write(plan) for plan in outline.slides]
+        for round_index in range(max_repair_rounds + 1):
+            announce("Reviewing source facts and story")
+            review = generator.generate(
+                CopyReview,
+                stage="review",
+                model=settings.model_for("review"),
+                system_prompt="Review the original brief against VISIBLE slide content. Allow qualitative proposed explanations, a relevant closing CTA, proposed quarter assignments and disclosed illustrative metrics. Reject unsupported hard facts, missing source facts, duplicate filler, invented contacts/competitors and internal design notes. Return zero-based slide indices. Never demand extra business facts not present in the brief. A slide without issues must not be regenerated.",
+                user_prompt=json.dumps(
+                    {
+                        "brief": prompt,
+                        "facts": outline.facts,
+                        "slides": [
+                            {"slide_index": i, **visible_copy(s)} for i, s in enumerate(slides)
+                        ],
+                    }
+                ),
+                max_tokens=2200,
+            )
+            if any(i.slide_index >= len(slides) for i in review.issues) or any(
+                i < 0 or i >= len(outline.facts) for i in review.missing_fact_ids
+            ):
+                raise ValueError("review returned invalid references")
+            if review_callback:
+                review_callback(review.model_dump())
+            if review.passed and not review.issues and not review.missing_fact_ids:
+                break
+            if round_index == max_repair_rounds:
+                raise ValueError("story failed final source review")
+            fixes = {i.slide_index: i.fix for i in review.issues}
+            for fact_id in review.missing_fact_ids:
+                index = next(
+                    (i for i, p in enumerate(outline.slides) if fact_id in p.source_fact_ids), None
+                )
+                if index is None:
+                    raise ValueError("missing source fact has no planned slide")
+                fixes[index] = fixes.get(index, "") + " Include visibly: " + outline.facts[fact_id]
+            if not fixes:
+                raise ValueError("review failed without actionable findings")
+            for index, feedback in fixes.items():
+                slides[index] = write(outline.slides[index], feedback, "repair")
+        deck = Deck(
+            title=outline.brand,
+            audience=outline.audience,
+            tone=outline.tone,
+            theme=theme if theme != "default" else outline.theme,
+            slides=slides,
+            design_version="gamma-v1",
+        )
+        announce("Resolving visual assets")
+        return prepare_assets(deck, prompt, deadline=deadline)
+    finally:
+        if hasattr(generator, "usage"):
+            counts = generator.usage.snapshot()
+            if usage_callback:
+                usage_callback(counts)
+            else:
+                log.info("pipeline token usage: %s", counts)

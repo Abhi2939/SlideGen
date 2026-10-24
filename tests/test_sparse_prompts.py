@@ -10,7 +10,7 @@ from app.llm.client import LLMClient
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import DEFAULT_SLIDE_COUNT
 from app.pipeline.briefs import beauty_brand
-from app.pipeline.orchestrator import generate_deck
+from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 from app.pipeline.write_slides import _slide_text_content
 from app.llm.usage import record_usage
 

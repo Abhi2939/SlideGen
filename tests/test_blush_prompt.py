@@ -10,7 +10,7 @@ from app.core.deck_schema import ClosingSlide
 from app.pipeline.analyze import analyze_prompt
 from app.pipeline.briefs import beauty_brand
 from app.pipeline.models import AnalysisOutput, OutlineOutput
-from app.pipeline.orchestrator import generate_deck
+from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
 from app.pipeline.write_slides import _slide_text_content, _write_one
 from app.render.builder import build_deck
 

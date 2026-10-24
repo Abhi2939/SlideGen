@@ -34,6 +34,7 @@ class TypeScale:
     small: Pt = Pt(16)
     caption: Pt = Pt(12)
     stat: Pt = Pt(54)
+    statement: Pt = Pt(42)
 
 
 @dataclass(frozen=True)

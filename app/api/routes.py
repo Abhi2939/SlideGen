@@ -5,6 +5,7 @@ from __future__ import annotations
 import ipaddress
 import os
 from pathlib import Path
+import json
 import re
 import threading
 import time
@@ -19,6 +20,35 @@ from app.jobs.store import JobQueueFullError
 
 router = APIRouter()
 PPTX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+
+
+@router.get("/debug/{deck_id}")
+def deck_debug(deck_id: str, request: Request):
+    store = request.app.state.runner.store
+    if store.get(deck_id) is None:
+        raise HTTPException(404, "Deck not found.")
+    path = store.output_dir / (deck_id + ".qa") / "report.json"
+    if not path.is_file():
+        raise HTTPException(409, "Visual report is not available yet.")
+    report = json.loads(path.read_text(encoding="utf-8"))
+    for attempt in report.get("attempts", []):
+        attempt["images"] = [f"/debug/{deck_id}/{image}" for image in attempt.get("images", [])]
+    return report
+
+
+@router.get("/debug/{deck_id}/{iteration}/{filename}")
+def deck_debug_image(deck_id: str, iteration: int, filename: str, request: Request):
+    store = request.app.state.runner.store
+    if (
+        store.get(deck_id) is None
+        or iteration not in {1, 2, 3}
+        or not re.fullmatch(r"slide-\d{2}\.png", filename)
+    ):
+        raise HTTPException(404, "Slide image not found.")
+    path = store.output_dir / (deck_id + ".qa") / str(iteration) / filename
+    if not path.is_file():
+        raise HTTPException(404, "Slide image not found.")
+    return FileResponse(path, media_type="image/png")
 
 
 class _FixedWindowLimiter:
