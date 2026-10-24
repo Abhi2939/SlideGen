@@ -18,8 +18,22 @@ jobs:
           python-version: "3.11"
           cache: pip
           cache-dependency-path: requirements-dev.txt
+      - name: Install rendering fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y fonts-crosextra-carlito fonts-liberation2
       - name: Install development dependencies
         run: python -m pip install -r requirements-dev.txt
+      - name: Verify production font metrics
+        run: |
+          python - <<'PY'
+          from app.render.measure import font_metrics
+
+          for bold in (False, True):
+              face = font_metrics("Calibri", 16, bold)
+              print(f"Calibri metrics (bold={bold}): {face.path}")
+              assert "Carlito" in str(face.path), "CI must use the production Calibri-compatible font"
+          PY
       - name: Run tests
         run: python -m pytest
       - name: Lint
