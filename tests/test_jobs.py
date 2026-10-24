@@ -165,6 +165,45 @@ def test_plain_value_error_logs_application_location_without_error_text(tmp_path
     assert str(Path.cwd()) not in caplog.text
 
 
+def test_job_recovers_outline_source_mismatch_and_saves_powerpoint(tmp_path, monkeypatch):
+    from pptx import Presentation
+    from app.pipeline.orchestrator import generate_deck
+    from app.render.builder import build_deck
+    from test_editorial_pipeline import PROMPT, SourceCorrectionGenerator
+
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    # Exercise generation and real PPTX rendering; pixel QA is tested separately.
+    monkeypatch.setattr(
+        "app.qa.gate.build_checked", lambda deck, path, **kwargs: build_deck(deck, path)
+    )
+    fake = SourceCorrectionGenerator("PRIVATE_COMPLETION unsupported revenue")
+    store = JobStore(tmp_path)
+    with JobRunner(store, generate=lambda prompt: generate_deck(prompt, generator=fake)) as runner:
+        job = runner.submit(PROMPT)
+    completed = store.get(job.id)
+    assert completed.status == "done"
+    assert completed.error is None
+    assert len(Presentation(completed.output_path).slides) == 9
+    assert fake.outline_calls == 2
+
+
+def test_exhausted_outline_source_failure_logs_reason_without_generated_text(tmp_path, caplog):
+    from app.pipeline.orchestrator import generate_deck
+    from test_editorial_pipeline import PROMPT, SourceCorrectionGenerator
+
+    fake = SourceCorrectionGenerator("PRIVATE_COMPLETION unsupported revenue", recover=False)
+    store = JobStore(tmp_path)
+    with JobRunner(store, generate=lambda prompt: generate_deck(prompt, generator=fake)) as runner:
+        job = runner.submit(PROMPT)
+    failed = store.get(job.id)
+    assert failed.status == "failed"
+    assert failed.error == USER_ERROR
+    assert failed.output_path is None
+    assert fake.stages == ["outline", "outline"]
+    assert "reason=outline_fact_not_in_source stage=outline" in caplog.text
+    assert "PRIVATE" not in caplog.text
+
+
 def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
     from app.config import Settings
     from app.llm.client import LLMClient

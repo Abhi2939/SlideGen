@@ -38,6 +38,17 @@ class StructuredOutputError(SlideGenError):
         )
 
 
+class OutlineSourceError(SlideGenError, ValueError):
+    """An outline claimed evidence that cannot be found in the supplied brief."""
+
+    stage = "outline"
+    reason = "outline_fact_not_in_source"
+
+    def __init__(self, fact_ids: list[int]):
+        self.fact_ids = fact_ids
+        super().__init__("outline facts must be verbatim source evidence")
+
+
 class SlideWriteError(SlideGenError):
     """A single planned slide could not be generated or validated."""
 

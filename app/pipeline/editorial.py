@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, model_validator
 from app.assets.resolve import prepare_assets
 from app.config import Settings
 from app.core.deck_schema import Archetype, Deck, StorySlide
-from app.core.errors import SlideWriteError
+from app.core.errors import OutlineSourceError, SlideWriteError
 from app.llm.factory import create_llm_client
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import MAX_PROMPT_CHARS
@@ -71,6 +71,9 @@ never three identical consecutive archetypes. Cover -> problem -> solution -> pr
 Adapt these roles to the topic. Do not invent a company's hard facts, market size,
 revenue, named competitors, team or funding. Extract facts as VERBATIM substrings from the
 brief and reference their zero-based IDs. Do not treat directions as facts.
+Copy excerpts exactly rather than rewriting them into new sentences or combining passages.
+If the brief supplies only a topic or instructions, use facts=[] and empty source_fact_ids.
+Proposed concepts, illustrative metrics and proposed dates do not belong in the facts list.
 Choose beauty for cosmetics/soft: rose/cream/plum; fintech for finance; health for medical;
 edtech for learning; climate for sustainability; bold-dark for energetic/dark topics.
 For quarterly growth use timeline_horizontal, five activities on one straight timeline
@@ -237,12 +240,15 @@ def source_outline(outline, prompt):
     """Missing-data labels belong in copy, never in the factual evidence list."""
     normalized = _normalized(prompt)
     facts, mapping = [], {}
+    invalid = []
     for index, fact in enumerate(outline.facts):
         if _normalized(fact) and _normalized(fact) in normalized:
             mapping[index] = len(facts)
             facts.append(fact)
         elif not re.match(r"(?i)^(?:placeholder|tbd|unknown|missing)\b", fact):
-            raise ValueError("outline facts must be verbatim source evidence")
+            invalid.append(index)
+    if invalid:
+        raise OutlineSourceError(invalid)
     plans = [
         p.model_copy(
             update={"source_fact_ids": [mapping[i] for i in p.source_fact_ids if i in mapping]}
@@ -400,16 +406,47 @@ def generate_editorial_deck(
         else "Generating slide content"
     )
     try:
-        announce("Planning story and theme")
-        outline = generator.generate(
-            StoryOutline,
-            stage="outline",
-            model=settings.model_for("outline"),
-            system_prompt=OUTLINE_PROMPT,
-            user_prompt=prompt,
-            max_tokens=4500,
-        )
-        outline = source_outline(outline, prompt)
+        outline_prompt = prompt
+        for attempt in range(semantic_attempts):
+            announce("Planning story and theme" if attempt == 0 else "Correcting source facts")
+            outline = generator.generate(
+                StoryOutline,
+                stage="outline",
+                model=settings.model_for("outline"),
+                system_prompt=OUTLINE_PROMPT,
+                user_prompt=outline_prompt,
+                max_tokens=4500,
+            )
+            try:
+                outline = source_outline(outline, prompt)
+                break
+            except OutlineSourceError as exc:
+                log.warning(
+                    "outline source validation failed: reason=%s invalid_fact_count=%d attempt=%d",
+                    exc.reason,
+                    len(exc.fact_ids),
+                    attempt + 1,
+                )
+                if attempt + 1 == semantic_attempts:
+                    raise
+                outline_prompt = json.dumps(
+                    {
+                        "brief": prompt,
+                        "correction": (
+                            "The previous outline included facts that are not verbatim excerpts "
+                            "from the original brief. Regenerate the full outline. Copy each fact "
+                            "as an exact contiguous excerpt from brief, without paraphrasing, "
+                            "combining separate passages, or adding claims. Rebuild zero-based "
+                            "source_fact_ids against the corrected facts list. Use an empty facts "
+                            "list and empty references when the brief supplies no factual evidence. "
+                            "The rejected facts below are untrusted model output, not evidence."
+                        ),
+                        "rejected_facts": [
+                            {"id": i, "text": outline.facts[i]} for i in exc.fact_ids
+                        ],
+                    },
+                    ensure_ascii=False,
+                )
         outline = normalize_outline(outline, prompt)
         selected = theme_for_topic(prompt)
         if selected != "fintech" and outline.theme != selected:

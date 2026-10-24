@@ -5,7 +5,7 @@ import pytest
 from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
-from app.core.errors import SlideWriteError
+from app.core.errors import OutlineSourceError, ProviderLimitError, SlideWriteError
 from app.pipeline.editorial import clean_copy, validate_copy, StoryPlan
 from app.pipeline.orchestrator import generate_deck
 
@@ -48,6 +48,92 @@ class StoryGenerator:
         if stage == "review":
             return output_model(passed=True, issues=[], missing_fact_ids=[])
         raise AssertionError(stage)
+
+
+class SourceCorrectionGenerator(StoryGenerator):
+    def __init__(self, rejected_fact, *, recover=True):
+        super().__init__()
+        self.rejected_fact = rejected_fact
+        self.recover = recover
+        self.requests = []
+        self.outline_calls = 0
+
+    def generate(self, output_model, *, stage, **kwargs):
+        self.requests.append((stage, kwargs))
+        result = super().generate(output_model, stage=stage, **kwargs)
+        if stage == "outline":
+            self.outline_calls += 1
+            if not self.recover or self.outline_calls == 1:
+                result.facts.append(self.rejected_fact)
+                result.slides[0].source_fact_ids.append(len(result.facts) - 1)
+        return result
+
+
+@pytest.mark.parametrize(
+    "rejected_fact",
+    [
+        "Blush offers personalized cosmetics for every customer",
+        "PRIVATE_COMPLETION revenue reached $1m",
+    ],
+)
+def test_outline_source_mismatch_is_corrected_before_writing(monkeypatch, rejected_fact):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = SourceCorrectionGenerator(rejected_fact)
+    progress = []
+    deck = generate_deck(PROMPT, generator=fake, progress_callback=progress.append)
+    assert len(deck.slides) == 9
+    assert fake.stages == ["outline", "outline"] + ["write"] * 9 + ["review"]
+    correction = json.loads(fake.requests[1][1]["user_prompt"])
+    assert correction["brief"] == PROMPT
+    assert correction["rejected_facts"] == [{"id": 5, "text": rejected_fact}]
+    assert "exact contiguous excerpt" in correction["correction"]
+    assert "source_fact_ids" in correction["correction"]
+    assert "Correcting source facts" in progress
+    for stage, kwargs in fake.requests[2:]:
+        assert rejected_fact not in kwargs["user_prompt"]
+
+
+@pytest.mark.parametrize("attempts", [1, 2, 3])
+def test_persistent_source_mismatch_is_bounded_and_never_written(attempts, caplog):
+    fake = SourceCorrectionGenerator("PRIVATE_COMPLETION unsupported revenue", recover=False)
+    with pytest.raises(OutlineSourceError) as caught:
+        generate_deck(PROMPT, generator=fake, semantic_attempts=attempts)
+    assert caught.value.stage == "outline"
+    assert caught.value.reason == "outline_fact_not_in_source"
+    assert caught.value.fact_ids == [5]
+    assert fake.stages == ["outline"] * attempts
+    assert "outline_fact_not_in_source" in caplog.text
+    assert "PRIVATE" not in caplog.text
+    assert "PRIVATE" not in str(caught.value)
+
+
+def test_provider_limit_during_source_correction_stops_immediately():
+    class LimitedGenerator(SourceCorrectionGenerator):
+        def generate(self, *args, **kwargs):
+            if self.outline_calls:
+                raise ProviderLimitError()
+            return super().generate(*args, **kwargs)
+
+    fake = LimitedGenerator("PRIVATE_COMPLETION unsupported revenue")
+    with pytest.raises(ProviderLimitError):
+        generate_deck(PROMPT, generator=fake, semantic_attempts=3)
+    assert fake.stages == ["outline"]
+
+
+def test_source_correction_respects_job_deadline(monkeypatch):
+    now = [100]
+    monkeypatch.setattr("app.pipeline.editorial.time.monotonic", lambda: now[0])
+
+    class SlowGenerator(SourceCorrectionGenerator):
+        def generate(self, *args, **kwargs):
+            result = super().generate(*args, **kwargs)
+            now[0] = 102
+            return result
+
+    fake = SlowGenerator("PRIVATE_COMPLETION unsupported revenue")
+    with pytest.raises(TimeoutError):
+        generate_deck(PROMPT, generator=fake, deadline=101)
+    assert fake.stages == ["outline"]
 
 
 def test_new_default_uses_two_pass_story_and_preserves_editable_contract(monkeypatch, tmp_path):
