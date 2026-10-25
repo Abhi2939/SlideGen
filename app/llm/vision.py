@@ -40,7 +40,9 @@ class GroqVisionReviewer:
         self.generator.deadline = deadline
         if progress_callback:
             self.generator.on_provider_wait = lambda stage, seconds: progress_callback(
-                f"Waiting for AI rate limit (~{seconds}s)..." if seconds else "Reviewing slide design"
+                f"Waiting for AI rate limit (~{seconds}s)..."
+                if seconds
+                else "Reviewing slide design"
             )
         self.model = os.getenv("SLIDEGEN_VISION_MODEL", "qwen/qwen3.8-27b")
 

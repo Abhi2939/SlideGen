@@ -29,14 +29,22 @@ class RateSettings:
             max_retries=int(os.getenv("LLM_MAX_RETRIES", "8")),
             wait_budget=float(os.getenv("LLM_WAIT_BUDGET_SECONDS", "180")),
             fallback_after=float(os.getenv("LLM_FALLBACK_AFTER_SECONDS", "30")),
-            fallback_models=tuple(dict.fromkeys(
-                m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "").split(",") if m.strip()
-            )),
+            fallback_models=tuple(
+                dict.fromkeys(
+                    m.strip() for m in os.getenv("LLM_FALLBACK_MODELS", "").split(",") if m.strip()
+                )
+            ),
         )
-        if (settings.tpm < 1 or not 0 < settings.safety_margin <= 1
-                or settings.concurrency < 1 or settings.max_retries < 0
-                or not math.isfinite(settings.wait_budget) or settings.wait_budget <= 0
-                or not math.isfinite(settings.fallback_after) or settings.fallback_after < 0):
+        if (
+            settings.tpm < 1
+            or not 0 < settings.safety_margin <= 1
+            or settings.concurrency < 1
+            or settings.max_retries < 0
+            or not math.isfinite(settings.wait_budget)
+            or settings.wait_budget <= 0
+            or not math.isfinite(settings.fallback_after)
+            or settings.fallback_after < 0
+        ):
             raise ValueError("Invalid LLM rate limit settings")
         return settings
 
@@ -74,7 +82,8 @@ class TokenLimiter:
         if cost > self.budget:
             raise LLMProviderError(
                 "AI request exceeds the configured token window; shorten the brief or "
-                "reduce this stage's token budget.", code="request_too_large"
+                "reduce this stage's token budget.",
+                code="request_too_large",
             )
         with self._lock:
             now = self.clock()
@@ -121,8 +130,11 @@ class TokenLimiter:
                     "provider_remaining_tokens": self._remote.get(model, (None,))[0],
                     "blocked_seconds": round(max(0, self._blocked.get(model, 0) - now), 2),
                 }
-            return {"tpm_limit": self.settings.tpm, "concurrency": self.settings.concurrency,
-                    "models": result}
+            return {
+                "tpm_limit": self.settings.tpm,
+                "concurrency": self.settings.concurrency,
+                "models": result,
+            }
 
 
 _shared = None

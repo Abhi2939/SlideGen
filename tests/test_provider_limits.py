@@ -70,6 +70,7 @@ class Clock:
 
 def client(provider, **settings):
     from app.llm.pacing import RateSettings, TokenLimiter
+
     clock = Clock()
     limiter = TokenLimiter(RateSettings(**settings), clock=lambda: clock.now, sleep=clock.sleep)
     return LLMClient(provider, limiter=limiter), clock
@@ -101,6 +102,7 @@ def test_daily_limits_fail_immediately_with_reset(metric):
 
 def test_production_payload_is_tpm_even_with_984_daily_requests_remaining():
     from app.llm.limits import provider_limit_error
+
     error = limit_error(requested=2286, retry="6", remaining="984")
     error.body["error"]["message"] = (
         "Rate limit reached on tokens per minute (TPM): Limit 8000, Used 6441, Requested 2286."
@@ -161,14 +163,17 @@ def test_temporary_limit_retries_can_be_disabled():
 
 def test_provider_retry_payload_and_duration_headers():
     from app.llm.limits import header_diagnostics, provider_limit_error
-    error = SimpleNamespace(body={"error": {"limit_type": "requests_per_minute",
-                                           "retry_after_seconds": 12.2}})
+
+    error = SimpleNamespace(
+        body={"error": {"limit_type": "requests_per_minute", "retry_after_seconds": 12.2}}
+    )
     assert provider_limit_error(error).diagnostics == {
-        "limit_type": "requests_per_minute", "retry_after_seconds": 13,
+        "limit_type": "requests_per_minute",
+        "retry_after_seconds": 13,
     }
-    assert header_diagnostics({"X-RateLimit-Reset-Tokens": "1m2.5s",
-                               "Retry-After": "2.5"}) == {
-        "tokens_reset_seconds": 62.5, "retry_after_seconds": 3,
+    assert header_diagnostics({"X-RateLimit-Reset-Tokens": "1m2.5s", "Retry-After": "2.5"}) == {
+        "tokens_reset_seconds": 62.5,
+        "retry_after_seconds": 3,
     }
 
 

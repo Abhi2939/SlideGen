@@ -53,8 +53,11 @@ class StructuredGenerator:
 
     def _complete(self, *, stage: str, **kwargs) -> str:
         return self.client.complete(
-            stage=stage, deadline=self.deadline, on_wait=self.on_provider_wait,
-            max_retries=self.max_rate_limit_retries, **kwargs,
+            stage=stage,
+            deadline=self.deadline,
+            on_wait=self.on_provider_wait,
+            max_retries=self.max_rate_limit_retries,
+            **kwargs,
         )
 
     def generate(
@@ -71,10 +74,15 @@ class StructuredGenerator:
         image_urls: list[str] | None = None,
     ) -> T:
         key = checkpoint_key(
-            output_model, stage=stage, model=model, system_prompt=system_prompt,
-            user_prompt=user_prompt, temperature=temperature,
+            output_model,
+            stage=stage,
+            model=model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
             max_tokens=os.getenv(f"LLM_{stage.upper()}_MAX_TOKENS") or max_tokens,
-            response_schema=response_schema, image_urls=image_urls,
+            response_schema=response_schema,
+            image_urls=image_urls,
         )
         cached = load_checkpoint(key)
         if cached is not None:

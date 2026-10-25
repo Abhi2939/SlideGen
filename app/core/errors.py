@@ -22,12 +22,13 @@ class ProviderLimitError(LLMProviderError):
         kind = self.diagnostics.get("limit_type")
         if kind in {"requests_per_day", "tokens_per_day"}:
             reset = self.diagnostics.get("reset_at")
-            message = (
-                f"The AI provider's daily {kind.split('_')[0]} limit was reached. "
-                + (f"Resets at {reset}." if reset else "Reset time was not supplied by the provider.")
+            message = f"The AI provider's daily {kind.split('_')[0]} limit was reached. " + (
+                f"Resets at {reset}." if reset else "Reset time was not supplied by the provider."
             )
         else:
-            message = "The AI provider's temporary rate limit is still busy. Please try again shortly."
+            message = (
+                "The AI provider's temporary rate limit is still busy. Please try again shortly."
+            )
         super().__init__(
             message,
             status_code=429,

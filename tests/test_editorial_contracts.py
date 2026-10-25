@@ -10,8 +10,14 @@ from app.llm.client import LLMClient
 from app.llm.schema import recovery_format
 from app.llm.structured import StructuredGenerator
 from app.pipeline.editorial import (
-    ITEM_BOUNDS, StoryPlan, StoryOutline, normalize_outline, planned_slide_model,
-    planned_review_model, source_copy_fallback, validate_copy,
+    ITEM_BOUNDS,
+    StoryPlan,
+    StoryOutline,
+    normalize_outline,
+    planned_slide_model,
+    planned_review_model,
+    source_copy_fallback,
+    validate_copy,
 )
 from app.pipeline.orchestrator import generate_deck
 from test_editorial_pipeline import FIXTURE, PROMPT, StoryGenerator
@@ -29,8 +35,14 @@ def test_every_planned_archetype_has_exact_decoding_and_runtime_contract(archety
     assert "items" in schema["required"]
     invalid_count = bounds[1] + 1
     with pytest.raises(ValidationError):
-        model.model_validate({"archetype": archetype, "title": "Title", "subtitle": "Tagline",
-                              "items": [{"title": "Item", "description": "Description"}] * invalid_count})
+        model.model_validate(
+            {
+                "archetype": archetype,
+                "title": "Title",
+                "subtitle": "Tagline",
+                "items": [{"title": "Item", "description": "Description"}] * invalid_count,
+            }
+        )
 
 
 def test_slide_three_wrong_count_is_repaired_in_the_real_structured_loop():
@@ -39,8 +51,12 @@ def test_slide_three_wrong_count_is_repaired_in_the_real_structured_loop():
     fixed = Deck.model_validate_json(FIXTURE.read_text()).slides[2].model_dump()
     provider = FakeProvider([json.dumps(data), json.dumps(fixed)])
     result = StructuredGenerator(LLMClient(provider)).generate(
-        planned_slide_model("split_image"), stage="write", model="openai/gpt-oss-120b",
-        system_prompt="Write the three source dimensions", user_prompt=PROMPT, max_tokens=1800,
+        planned_slide_model("split_image"),
+        stage="write",
+        model="openai/gpt-oss-120b",
+        system_prompt="Write the three source dimensions",
+        user_prompt=PROMPT,
+        max_tokens=1800,
     )
     assert len(result.items) == 3
     assert len(provider.calls) == 2
@@ -71,7 +87,9 @@ class BrokenThirdSlide(StoryGenerator):
 
 
 @pytest.mark.parametrize("count", [0, 1, 2, 4, 5, 6])
-def test_production_slide_three_failure_recovers_and_renders_whole_deck(count, tmp_path, monkeypatch):
+def test_production_slide_three_failure_recovers_and_renders_whole_deck(
+    count, tmp_path, monkeypatch
+):
     from app.render.builder import build_deck
     from app.qa.lint import lint_pptx
 
@@ -95,9 +113,9 @@ def test_production_slide_three_failure_recovers_and_renders_whole_deck(count, t
 
 def test_exhausted_malformed_slide_three_uses_source_and_still_reviews(monkeypatch):
     monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
-    fake = BrokenThirdSlide(2, failure=StructuredOutputError(
-        "write", 2, "response did not match the required schema"
-    ))
+    fake = BrokenThirdSlide(
+        2, failure=StructuredOutputError("write", 2, "response did not match the required schema")
+    )
     assert len(generate_deck(PROMPT, generator=fake).slides[2].items) == 3
     assert fake.stages[-1] == "review"
 
@@ -111,8 +129,11 @@ def test_source_recovery_does_not_hide_provider_access_failure():
 
 
 def test_no_source_recovery_for_unprovided_properties_or_unrelated_plans():
-    plan = StoryPlan(archetype="split_image", title="Solution",
-                     purpose="Explain the source beauty proposition in three dimensions:")
+    plan = StoryPlan(
+        archetype="split_image",
+        title="Solution",
+        purpose="Explain the source beauty proposition in three dimensions:",
+    )
     assert source_copy_fallback(plan, "A brand selling foundation, lipstick and skincare.") is None
     assert source_copy_fallback(plan.model_copy(update={"purpose": "Other topic"}), PROMPT) is None
     fallback = source_copy_fallback(plan, PROMPT)
@@ -134,10 +155,18 @@ def test_normalization_keeps_title_layout_and_evidence_in_the_same_source_role(a
     outline.facts = [PROMPT.split(". ")[0], "shade-matching quiz, waitlist, and creator-led demos"]
     for plan in outline.slides:
         plan.source_fact_ids = [0]
-    outline.slides[2] = StoryPlan(archetype="split_image", title="Solution: Shade-Matching Quiz",
-                                  purpose="Quiz solution", source_fact_ids=[1])
-    outline.slides[4] = StoryPlan(archetype=archetype, title="How It Works: Custom Blending",
-                                  purpose="Draft unsupported production process", source_fact_ids=[0])
+    outline.slides[2] = StoryPlan(
+        archetype="split_image",
+        title="Solution: Shade-Matching Quiz",
+        purpose="Quiz solution",
+        source_fact_ids=[1],
+    )
+    outline.slides[4] = StoryPlan(
+        archetype=archetype,
+        title="How It Works: Custom Blending",
+        purpose="Draft unsupported production process",
+        source_fact_ids=[0],
+    )
     normalized = normalize_outline(outline, PROMPT)
     solution, workflow = normalized.slides[2], normalized.slides[4]
     assert solution.title == "Beauty made personal"
@@ -170,15 +199,22 @@ class DuplicateLaunchReview(StoryGenerator):
             request = json.loads(kwargs["user_prompt"])
             self.reviews.append(request)
             if len(self.reviews) == 1 or self.always_reject:
-                return output_model(passed=False, issues=[{
-                    "slide_index": 5 if len(request["slides"]) == 9 else 4,
-                    "fix": "Remove duplicate launch channels instead of rewriting the same content.",
-                }])
+                return output_model(
+                    passed=False,
+                    issues=[
+                        {
+                            "slide_index": 5 if len(request["slides"]) == 9 else 4,
+                            "fix": "Remove duplicate launch channels instead of rewriting the same content.",
+                        }
+                    ],
+                )
             return output_model(passed=True)
         result = super().generate(output_model, stage=stage, **kwargs)
         if stage == "write":
             plan = StoryPlan.model_validate(json.loads(kwargs["user_prompt"])["plan"])
-            if plan.purpose.startswith(("Three touchpoints in order:", "Explain the three supplied launch channels")):
+            if plan.purpose.startswith(
+                ("Three touchpoints in order:", "Explain the three supplied launch channels")
+            ):
                 result = source_copy_fallback(plan, PROMPT)
         return result
 

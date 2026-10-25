@@ -141,12 +141,14 @@ class JobStore:
             # request/schema hashes prevent reuse after input/schema changes.
             previous = connection.execute(
                 "SELECT id FROM jobs WHERE prompt = ? AND status = 'failed' "
-                "ORDER BY updated_at DESC LIMIT 1", (prompt,)
+                "ORDER BY updated_at DESC LIMIT 1",
+                (prompt,),
             ).fetchone()
             if previous:
                 connection.execute(
                     "INSERT INTO job_checkpoints SELECT ?, call_key, value "
-                    "FROM job_checkpoints WHERE job_id = ?", (job_id, previous["id"])
+                    "FROM job_checkpoints WHERE job_id = ?",
+                    (job_id, previous["id"]),
                 )
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)  # type: ignore[return-value]
@@ -281,9 +283,12 @@ class JobStore:
 
     def queued_ids(self) -> list[str]:
         with self._lock, self._connect() as connection:
-            return [row[0] for row in connection.execute(
-                "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at, id"
-            )]
+            return [
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at, id"
+                )
+            ]
 
     def load_checkpoint(self, job_id: str, key: str) -> str | None:
         with self._lock, self._connect() as connection:
@@ -304,8 +309,9 @@ class JobStore:
 
     def delete_checkpoint(self, job_id: str, key: str) -> None:
         with self._lock, self._connect() as connection:
-            connection.execute("DELETE FROM job_checkpoints WHERE job_id = ? AND call_key = ?",
-                               (job_id, key))
+            connection.execute(
+                "DELETE FROM job_checkpoints WHERE job_id = ? AND call_key = ?", (job_id, key)
+            )
 
     def recover_running_jobs(self) -> int:
         """Compatibility alias for startup recovery of all interrupted jobs."""
@@ -319,8 +325,9 @@ class JobStore:
                 "SELECT id, output_path FROM jobs WHERE created_at < ?", (cutoff,)
             ).fetchall()
             connection.executemany("DELETE FROM jobs WHERE id = ?", [(row["id"],) for row in rows])
-            connection.executemany("DELETE FROM job_checkpoints WHERE job_id = ?",
-                                   [(row["id"],) for row in rows])
+            connection.executemany(
+                "DELETE FROM job_checkpoints WHERE job_id = ?", [(row["id"],) for row in rows]
+            )
         for row in rows:
             output = row["output_path"]
             if output:

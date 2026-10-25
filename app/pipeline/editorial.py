@@ -112,7 +112,10 @@ def planned_review_model(slide_count, fact_count):
         "PlannedCopyReview",
         __base__=CopyReview,
         issues=(list[issue], Field(default_factory=list, max_length=20)),
-        missing_fact_ids=(list[fact_id], Field(default_factory=list, max_length=20 if fact_count else 0)),
+        missing_fact_ids=(
+            list[fact_id],
+            Field(default_factory=list, max_length=20 if fact_count else 0),
+        ),
     )
 
 
@@ -272,7 +275,8 @@ def source_copy_fallback(plan, prompt):
     # these product properties from the topic, plan or rejected model output.
     if not re.search(
         r"\b(?:blend\w*|match\w*)[^.!?\n]{0,120}\bskin tone\b"
-        r"[^.!?\n]{0,80}\bundertone\b[^.!?\n]{0,80}\bstyle\b", source
+        r"[^.!?\n]{0,80}\bundertone\b[^.!?\n]{0,80}\bstyle\b",
+        source,
     ):
         return None
     if plan.archetype == "split_image" and plan.purpose.startswith(
@@ -286,12 +290,18 @@ def source_copy_fallback(plan, prompt):
     elif plan.archetype == "three_cards" and plan.purpose.startswith(
         "Explain only the three source product categories:"
     ):
-        items = [(name, f"{name} blended for your skin tone, undertone and individual style.")
-                 for name in ("Foundation", "Lipstick", "Skincare")]
-    elif plan.archetype == "big_stat" and re.search(r"problem|wrong shade", plan.title, re.I) and (
-        "wrong shade" in source
+        items = [
+            (name, f"{name} blended for your skin tone, undertone and individual style.")
+            for name in ("Foundation", "Lipstick", "Skincare")
+        ]
+    elif (
+        plan.archetype == "big_stat"
+        and re.search(r"problem|wrong shade", plan.title, re.I)
+        and ("wrong shade" in source)
     ):
-        items = [("The wrong shade", "A shade that does not match your skin tone, undertone or style.")]
+        items = [
+            ("The wrong shade", "A shade that does not match your skin tone, undertone or style.")
+        ]
     else:
         return None
     return StorySlide(
@@ -370,8 +380,11 @@ def normalize_outline(outline, prompt):
     )
 
     def source_ids(*terms):
-        return [i for i, fact in enumerate(outline.facts)
-                if any(term in fact.casefold() for term in terms)]
+        return [
+            i
+            for i, fact in enumerate(outline.facts)
+            if any(term in fact.casefold() for term in terms)
+        ]
 
     plans = []
     for index, plan in enumerate(outline.slides):
@@ -473,11 +486,15 @@ def merge_reviewed_source_duplicate(outline, slides, review, prompt):
         if source_launch_fallback(plan, prompt) is None or len(slide.items) != 3:
             continue
         labels = " ".join(item.title.casefold() for item in slide.items)
-        if all(re.search(pattern, labels) for pattern in (r"\bquiz\b", r"\bwaitlist\b", r"\bdemos?\b")):
+        if all(
+            re.search(pattern, labels) for pattern in (r"\bquiz\b", r"\bwaitlist\b", r"\bdemos?\b")
+        ):
             eligible.append(index)
     for issue in review.issues:
         duplicate = issue.slide_index
-        if duplicate not in eligible or not re.search(r"duplicat|redundan|repeat|merge", issue.fix, re.I):
+        if duplicate not in eligible or not re.search(
+            r"duplicat|redundan|repeat|merge", issue.fix, re.I
+        ):
             continue
         keeper = next((index for index in eligible if index != duplicate), None)
         if keeper is None:
@@ -495,8 +512,11 @@ def merge_reviewed_source_duplicate(outline, slides, review, prompt):
         except ValueError:
             continue
         reject_checkpoint(slides[duplicate])
-        log.info("merged reviewed source duplicate: removed_slide_index=%d remaining_slides=%d",
-                 duplicate, len(current))
+        log.info(
+            "merged reviewed source duplicate: removed_slide_index=%d remaining_slides=%d",
+            duplicate,
+            len(current),
+        )
         return normalized, current
     return None
 
@@ -620,9 +640,7 @@ def generate_editorial_deck(
     generator.deadline = deadline
     generator.on_provider_limit = provider_limit_callback
     generator.on_provider_wait = lambda stage, seconds: announce(
-        f"Waiting for AI rate limit (~{seconds}s)..."
-        if seconds
-        else "Generating slide content"
+        f"Waiting for AI rate limit (~{seconds}s)..." if seconds else "Generating slide content"
     )
     try:
         outline_prompt = prompt
@@ -682,11 +700,18 @@ def generate_editorial_deck(
                 if fallback is None:
                     return None
                 validate_copy(fallback, plan, prompt)
-                log.info("using validated source copy: stage=%s slide_index=%d archetype=%s items=%d",
-                         stage, slide_index, plan.archetype, len(fallback.items))
+                log.info(
+                    "using validated source copy: stage=%s slide_index=%d archetype=%s items=%d",
+                    stage,
+                    slide_index,
+                    plan.archetype,
+                    len(fallback.items),
+                )
                 return fallback
 
-            if stage == "repair" and re.search(r"unsupported|unprovided|claim|source", feedback, re.I):
+            if stage == "repair" and re.search(
+                r"unsupported|unprovided|claim|source", feedback, re.I
+            ):
                 fallback = recover_source_copy()
                 if fallback is not None:
                     return fallback
@@ -727,10 +752,12 @@ def generate_editorial_deck(
                 except StructuredOutputError as exc:
                     cause = exc.__cause__
                     format_failure = exc.detail in {
-                        "response was not valid JSON", "response did not match the required schema",
+                        "response was not valid JSON",
+                        "response did not match the required schema",
                     } or (
                         getattr(cause, "status_code", None) == 400
-                        and getattr(cause, "code", None) in {"json_validate_failed", "output_parse_failed"}
+                        and getattr(cause, "code", None)
+                        in {"json_validate_failed", "output_parse_failed"}
                     )
                     fallback = recover_source_copy() if format_failure else None
                     if fallback is not None:
@@ -750,8 +777,12 @@ def generate_editorial_deck(
                     log.warning(
                         "slide validation: stage=%s slide_index=%d archetype=%s "
                         "expected_items=%d-%d actual_items=%d attempt=%d reason=%s",
-                        stage, slide_index, plan.archetype, *ITEM_BOUNDS[plan.archetype],
-                        len(slide.items), attempt + 1,
+                        stage,
+                        slide_index,
+                        plan.archetype,
+                        *ITEM_BOUNDS[plan.archetype],
+                        len(slide.items),
+                        attempt + 1,
                         SlideWriteError(slide_index, plan.title, last).reason,
                     )
                     if "incorrect archetype item count" in last:

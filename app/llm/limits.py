@@ -34,7 +34,7 @@ def duration_seconds(value):
         return float(text)
     if not re.fullmatch(r"(?:\d+(?:\.\d+)?(?:ms|s|m|h|d))+", text):
         return None
-    units = {"ms": .001, "s": 1, "m": 60, "h": 3600, "d": 86400}
+    units = {"ms": 0.001, "s": 1, "m": 60, "h": 3600, "d": 86400}
     seconds = sum(float(n) * units[u] for n, u in re.findall(r"(\d+(?:\.\d+)?)(ms|s|m|h|d)", text))
     return seconds if math.isfinite(seconds) and seconds <= 31536000 else None
 
@@ -48,8 +48,10 @@ def header_diagnostics(headers):
         value = headers.get(header)
         if isinstance(value, str) and re.fullmatch(r"[0-9]{1,12}", value):
             diagnostics[name] = int(value)
-    for header, name in (("x-ratelimit-reset-tokens", "tokens_reset_seconds"),
-                         ("x-ratelimit-reset-requests", "requests_reset_seconds")):
+    for header, name in (
+        ("x-ratelimit-reset-tokens", "tokens_reset_seconds"),
+        ("x-ratelimit-reset-requests", "requests_reset_seconds"),
+    ):
         seconds = duration_seconds(headers.get(header))
         if seconds is not None:
             diagnostics[name] = seconds
@@ -57,7 +59,9 @@ def header_diagnostics(headers):
     seconds = duration_seconds(retry)
     if seconds is None and isinstance(retry, str):
         try:
-            seconds = max(0, (parsedate_to_datetime(retry) - datetime.now(timezone.utc)).total_seconds())
+            seconds = max(
+                0, (parsedate_to_datetime(retry) - datetime.now(timezone.utc)).total_seconds()
+            )
         except (ValueError, TypeError, OverflowError):
             pass
     if seconds is not None:
@@ -101,7 +105,9 @@ def provider_limit_error(exc: Exception) -> ProviderLimitError:
         reset = diagnostics.get("requests_reset_seconds") if kind == "requests_per_day" else None
         reset = reset if reset is not None else diagnostics.get("retry_after_seconds")
         if reset is not None:
-            diagnostics["reset_at"] = (datetime.now(timezone.utc) + timedelta(seconds=reset)).isoformat()
+            diagnostics["reset_at"] = (
+                datetime.now(timezone.utc) + timedelta(seconds=reset)
+            ).isoformat()
     return ProviderLimitError(diagnostics=diagnostics)
 
 

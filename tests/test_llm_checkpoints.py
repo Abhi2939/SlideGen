@@ -15,8 +15,14 @@ from test_provider_limits import Provider, Result
 
 
 def slide(generator, index):
-    return generator.generate(Result, stage="write", model="primary", system_prompt="One slide",
-                              user_prompt=f"Slide {index}", max_tokens=100)
+    return generator.generate(
+        Result,
+        stage="write",
+        model="primary",
+        system_prompt="One slide",
+        user_prompt=f"Slide {index}",
+        max_tokens=100,
+    )
 
 
 def test_restart_resumes_completed_slides_and_runner_requeues(tmp_path, monkeypatch):
@@ -84,7 +90,7 @@ def test_invalid_json_and_semantically_rejected_slides_are_not_reused(tmp_path):
     store = JobStore(tmp_path)
     job = store.create("Brief")
     store.mark_running(job.id)
-    provider = Provider(['not JSON', '{"title":"Unsupported"}', '{"title":"Supported"}'])
+    provider = Provider(["not JSON", '{"title":"Unsupported"}', '{"title":"Supported"}'])
     generator = StructuredGenerator(LLMClient(provider), max_attempts=1)
     with checkpoint_scope(store, job.id):
         with pytest.raises(StructuredOutputError):

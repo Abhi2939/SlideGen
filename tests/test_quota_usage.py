@@ -152,6 +152,7 @@ def test_nonquota_failure_does_not_start_another_slide_api_call():
 def test_global_serialization_does_not_start_pending_slide_after_a_limit(tmp_path):
     from app.llm.pacing import RateSettings, TokenLimiter
     from app.core.deck_schema import TitleSlide
+
     calls = []
 
     class Provider:
@@ -162,8 +163,13 @@ def test_global_serialization_does_not_start_pending_slide_after_a_limit(tmp_pat
     generator = StructuredGenerator(LLMClient(Provider(), limiter=TokenLimiter(RateSettings())))
 
     def generate(prompt):
-        return generator.generate(TitleSlide, stage="write", model="fake",
-                                  system_prompt="Write one slide", user_prompt=prompt)
+        return generator.generate(
+            TitleSlide,
+            stage="write",
+            model="fake",
+            system_prompt="Write one slide",
+            user_prompt=prompt,
+        )
 
     store = JobStore(tmp_path)
     with JobRunner(store, generate=generate) as runner:

@@ -21,8 +21,12 @@ def checkpoint_key(output_model, **request):
     # Exact inputs, schema and configured generation settings identify a call.
     # Semantic correction/repair requests have different keys. Never persist
     # partial or schema-invalid responses.
-    serialized = json.dumps({"schema": output_model.model_json_schema(), **request},
-                            ensure_ascii=False, sort_keys=True, default=str)
+    serialized = json.dumps(
+        {"schema": output_model.model_json_schema(), **request},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 

@@ -15,7 +15,8 @@ def isolated_llm_window(monkeypatch):
 
     offset = [0.0]
     limiter = pacing.TokenLimiter(
-        pacing.RateSettings(), clock=lambda: time.monotonic() + offset[0],
+        pacing.RateSettings(),
+        clock=lambda: time.monotonic() + offset[0],
         sleep=lambda seconds: offset.__setitem__(0, offset[0] + seconds),
     )
     monkeypatch.setattr(pacing, "_shared", limiter)

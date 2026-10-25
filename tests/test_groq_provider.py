@@ -19,19 +19,32 @@ def test_raw_sdk_response_preserves_usage_and_rate_headers():
     from groq import Groq
 
     def respond(request):
-        return httpx.Response(200, headers={"x-ratelimit-remaining-tokens": "6000",
-                                           "x-ratelimit-reset-tokens": "7.66s"}, json={
-            "id": "test", "object": "chat.completion", "created": 1, "model": "test",
-            "choices": [{"index": 0, "message": {"role": "assistant", "content": "ok"},
-                         "finish_reason": "stop"}],
-            "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
-        })
+        return httpx.Response(
+            200,
+            headers={"x-ratelimit-remaining-tokens": "6000", "x-ratelimit-reset-tokens": "7.66s"},
+            json={
+                "id": "test",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "test",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "ok"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 20, "completion_tokens": 5, "total_tokens": 25},
+            },
+        )
 
     # Exercise the installed SDK's real raw-response parser without networking.
     provider = groq_provider.GroqProvider.__new__(groq_provider.GroqProvider)
     with httpx.Client(transport=httpx.MockTransport(respond)) as transport:
         provider._client = Groq(api_key="fake", http_client=transport, max_retries=0)
-        content = provider.complete([{"role": "user", "content": "Hello"}], model="test", max_tokens=100)
+        content = provider.complete(
+            [{"role": "user", "content": "Hello"}], model="test", max_tokens=100
+        )
     assert content == "ok"
     assert content.headers["x-ratelimit-remaining-tokens"] == "6000"
     assert content.usage.completion_tokens == 5
