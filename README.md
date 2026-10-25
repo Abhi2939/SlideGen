@@ -169,7 +169,9 @@ Failed-job status responses also include an optional `failure` object with a saf
 
 For the explicit five-activity "quarterly growth through ..." brief, roadmap labels and order now come directly from the supplied list. Code assigns the visibly proposed Q1/Q2/Q3/Q4/Q4 sequence before content validation. Generated descriptions follow their activity labels rather than list positions; omitted, ambiguous or unrelated activities receive short source-only proposed descriptions. Unsupported claims in matched descriptions still fail validation, and the complete deck still receives final source review. Equivalent activity aliases are compared consistently on both sides. This removes model-dependent label/order/quarter failures without relaxing claim checks or changing provider limits.
 
-Slide content corrections now include the rejected visible copy, validation feedback and original review instructions, so the model can edit the specific failure. If unsupported claims persist in the explicitly supplied quiz/waitlist/creator-demo launch workflow, a narrowly scoped source-only replacement preserves those three channels and labels their descriptions as proposed. It is validated again and still receives final content review. Other slide topics, absent source channels, provider errors and exhausted schema errors do not use this fallback.
+Editorial writers now request a separate schema for each planned archetype: exact item counts (or 3?5 timeline nodes) are enforced in both Groq decoding and local parsing. The same count contract drives semantic validation and safe expected/actual-count logs. Normalizing a source role also updates its title, archetype and fact references together, so a personalization slide cannot retain quiz-only evidence or an unrelated manufacturing draft.
+
+Slide content corrections include rejected visible copy, validation feedback and original review instructions. When generation cannot produce valid copy for an explicitly sourced personalization proposition, product list or quiz/waitlist/creator-demo workflow, a narrowly scoped replacement uses only that brief?s supplied content. It is validated again and still receives final content review. Unrelated topics, absent source statements, provider access failures and quota errors never use this recovery. Application call/count/token logs are enabled under Uvicorn on Render; shape failures have distinct user messages instead of implying unsupported source claims. Review schemas use the actual slide count and explicit zero-based fact IDs. When review identifies two slides covering the same explicit launch channels, the pipeline may merge that verified duplicate while retaining 8?10 slides and at least five archetypes, then requires another real review. The default wall-clock job budget is 30 minutes to accommodate copy generation plus per-slide vision checks under an 8000 TPM cap; explicit timeout settings remain authoritative.
 
 ### Linux and macOS
 
@@ -232,7 +234,7 @@ The Blueprint uses a paid Render web plan because Render persistent disks are av
 | `SLIDEGEN_MAX_JOBS` | `1` | Concurrent generation workers. |
 | `SLIDEGEN_MAX_ACTIVE_JOBS` | `20` | Maximum queued plus running jobs. |
 | `SLIDEGEN_RETENTION_HOURS` | `24` | Age after which job records and deck files are deleted. |
-| `SLIDEGEN_JOB_TIMEOUT_SECONDS` | `900` | Maximum time budget for a generation job. The deadline is checked between pipeline stages and after rendering. |
+| `SLIDEGEN_JOB_TIMEOUT_SECONDS` | `1800` | Maximum time budget for a generation job. The deadline is checked between pipeline stages and after rendering. |
 | `SLIDEGEN_LLM_PROVIDER` | `groq` | Configured provider name. |
 | `SLIDEGEN_USE_SYSTEM_PROXY` | `false` | Use system HTTP proxy variables for Groq requests when the network requires a proxy. |
 | `SLIDEGEN_MODEL` | Provider defaults | Optional default model for all pipeline stages. |
@@ -248,7 +250,7 @@ Copy `.env.example` for local configuration. It contains placeholders only; neve
 
 - Run a single service instance. The queue is in-process and the SQLite database and files live on one attached disk. The Blueprint sets `numInstances: 1`.
 - The API accepts at most 20 queued or running jobs overall and 10 submissions per client IP per minute by default. The Render Blueprint uses Cloudflare's client-IP header for this limit instead of the caller-controlled leftmost `X-Forwarded-For` value.
-- Job status includes the current pipeline stage and queue position. The default job time budget is 900 seconds. A deadline can mark a job failed while an in-flight provider request is still waiting for its own network timeout; Python worker threads cannot interrupt that request.
+- Job status includes the current pipeline stage and queue position. The default job time budget is 1800 seconds. A deadline can mark a job failed while an in-flight provider request is still waiting for its own network timeout; Python worker threads cannot interrupt that request.
 - Render disks are available on paid web services and attach to one instance. Redeploys with a disk can briefly take the service offline.
 - The default retention window is 24 hours. Increase it only if the persistent disk has enough room for the expected deck volume.
 - On a free web service, idle spin-down adds a cold start and local files are lost on restart. The configured persistent disk requires a paid plan.
@@ -260,7 +262,7 @@ Copy `.env.example` for local configuration. It contains placeholders only; neve
 - A passed model review is insufficient for client acceptance: live manual QA found unsupported details after a pass. The final guards are verified offline, with a post-guard live rerun still required.
 - There is no in-browser editor, collaboration, account system, or image generation. The public job API uses per-IP rate limits and a bounded queue, not user authentication.
 - The job queue and request limiter are in process. Run one Render instance with its persistent disk attached.
-- The 900-second job deadline marks a job failed at the deadline, but a provider request already in progress cannot be interrupted; its worker can remain occupied until the request times out.
+- The 1800-second job deadline marks a job failed at the deadline, but a provider request already in progress cannot be interrupted; its worker can remain occupied until the request times out.
 
 ## Use the pipeline from Python
 

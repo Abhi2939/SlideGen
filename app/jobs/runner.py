@@ -43,7 +43,7 @@ class JobRunner:
             raise ValueError("SLIDEGEN_MAX_JOBS must be at least 1")
         configured_runtime = max_runtime_seconds
         if configured_runtime is None:
-            configured_runtime = float(os.getenv("SLIDEGEN_JOB_TIMEOUT_SECONDS", "900"))
+            configured_runtime = float(os.getenv("SLIDEGEN_JOB_TIMEOUT_SECONDS", "1800"))
         if configured_runtime <= 0:
             raise ValueError("SLIDEGEN_JOB_TIMEOUT_SECONDS must be greater than zero")
         self.store = store

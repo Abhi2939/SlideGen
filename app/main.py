@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import os
+import logging
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -27,6 +28,11 @@ def create_app(
     trust_cloudflare_ip_header: bool | None = None,
 ) -> FastAPI:
     load_dotenv()
+    # Uvicorn configures its own access loggers, not application loggers.
+    # Keep stage/count/token diagnostics visible in Render without enabling
+    # verbose HTTP-library logs.
+    logging.basicConfig(format="%(levelname)s:%(name)s:%(message)s")
+    logging.getLogger("app").setLevel(logging.INFO)
     active_limit = max_active_jobs
     if active_limit is None:
         active_limit = int(os.getenv("SLIDEGEN_MAX_ACTIVE_JOBS", "20"))

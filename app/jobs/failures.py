@@ -64,6 +64,8 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
         failure.code = exc.reason
         failure.slide_index = exc.slide_index
         failure.message = f"The AI could not produce valid, source-supported content for slide {exc.slide_index + 1}."
+        if exc.reason == "item_count_mismatch":
+            failure.message = f"The AI could not match the required layout for slide {exc.slide_index + 1}."
     elif isinstance(exc, StructuredOutputError):
         failure.code = "invalid_ai_response"
         failure.message = "The AI returned an unreadable or incomplete response."

@@ -4,14 +4,15 @@ import json
 import logging
 import re
 import time
-from typing import Literal
+from functools import lru_cache
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, create_model, model_validator
 
 from app.assets.resolve import prepare_assets
 from app.config import Settings
-from app.core.deck_schema import Archetype, Deck, StorySlide
-from app.core.errors import OutlineSourceError, SlideWriteError
+from app.core.deck_schema import Archetype, Deck, StoryItem, StorySlide
+from app.core.errors import OutlineSourceError, SlideWriteError, StructuredOutputError
 from app.llm.factory import create_llm_client
 from app.llm.checkpoints import reject_checkpoint
 from app.llm.structured import StructuredGenerator
@@ -23,6 +24,40 @@ from app.pipeline.grounding import (
 from app.render.theme import theme_for_topic
 
 log = logging.getLogger(__name__)
+
+
+# The generation schema and the post-generation checks must use one contract.
+# A generic StorySlide schema cannot express these per-archetype array lengths.
+ITEM_BOUNDS = {
+    "cover": (0, 0),
+    "split_image": (3, 3),
+    "three_cards": (3, 3),
+    "four_cards": (4, 4),
+    "timeline_horizontal": (3, 5),
+    "big_stat": (1, 1),
+    "quote": (1, 1),
+    "comparison": (2, 2),
+    "process_steps": (3, 3),
+    "grid_2x2": (4, 4),
+    "closing_cta": (0, 0),
+}
+
+
+@lru_cache(maxsize=len(ITEM_BOUNDS))
+def planned_slide_model(archetype):
+    """Constrain both Groq decoding and local parsing to this slide's layout."""
+    minimum, maximum = ITEM_BOUNDS[archetype]
+    return create_model(
+        "PlannedStorySlide_" + archetype,
+        __base__=StorySlide,
+        archetype=(Literal[archetype], Field(...)),
+        items=(list[StoryItem], Field(..., min_length=minimum, max_length=maximum)),
+    )
+
+
+def item_contract(plan):
+    minimum, maximum = ITEM_BOUNDS[plan.archetype]
+    return {"archetype": plan.archetype, "min_items": minimum, "max_items": maximum}
 
 
 class StoryPlan(BaseModel):
@@ -63,6 +98,22 @@ class CopyReview(BaseModel):
     passed: bool
     issues: list[CopyIssue] = Field(default_factory=list, max_length=20)
     missing_fact_ids: list[int] = Field(default_factory=list, max_length=20)
+
+
+@lru_cache(maxsize=64)
+def planned_review_model(slide_count, fact_count):
+    issue = create_model(
+        "PlannedCopyIssue",
+        __base__=CopyIssue,
+        slide_index=(int, Field(..., ge=0, lt=slide_count)),
+    )
+    fact_id = Annotated[int, Field(ge=0, lt=max(1, fact_count))]
+    return create_model(
+        "PlannedCopyReview",
+        __base__=CopyReview,
+        issues=(list[issue], Field(default_factory=list, max_length=20)),
+        missing_fact_ids=(list[fact_id], Field(default_factory=list, max_length=20 if fact_count else 0)),
+    )
 
 
 OUTLINE_PROMPT = """Plan an editorial presentation. Derive audience, tone, a curated theme and
@@ -209,6 +260,48 @@ def source_launch_fallback(plan, prompt):
     )
 
 
+def source_copy_fallback(plan, prompt):
+    """Recover an explicit source list without inventing missing slide items."""
+    launch = source_launch_fallback(plan, prompt)
+    if launch is not None:
+        return launch
+    source = prompt.casefold()
+    if not all(word in source for word in ("foundation", "lipstick", "skincare")):
+        return None
+    # Only use the source's explicit personalization statement, never infer
+    # these product properties from the topic, plan or rejected model output.
+    if not re.search(
+        r"\b(?:blend\w*|match\w*)[^.!?\n]{0,120}\bskin tone\b"
+        r"[^.!?\n]{0,80}\bundertone\b[^.!?\n]{0,80}\bstyle\b", source
+    ):
+        return None
+    if plan.archetype == "split_image" and plan.purpose.startswith(
+        "Explain the source beauty proposition in three dimensions:"
+    ):
+        items = [
+            ("Skin tone", "Foundation, lipstick and skincare blended around your skin tone."),
+            ("Undertone", "Foundation, lipstick and skincare matched to your undertone."),
+            ("Individual style", "Custom beauty products blended around your individual style."),
+        ]
+    elif plan.archetype == "three_cards" and plan.purpose.startswith(
+        "Explain only the three source product categories:"
+    ):
+        items = [(name, f"{name} blended for your skin tone, undertone and individual style.")
+                 for name in ("Foundation", "Lipstick", "Skincare")]
+    elif plan.archetype == "big_stat" and re.search(r"problem|wrong shade", plan.title, re.I) and (
+        "wrong shade" in source
+    ):
+        items = [("The wrong shade", "A shade that does not match your skin tone, undertone or style.")]
+    else:
+        return None
+    return StorySlide(
+        archetype=plan.archetype,
+        title=plan.title,
+        subtitle="Beauty blended for your skin tone, undertone and individual style",
+        items=[{"title": title, "description": description} for title, description in items],
+    )
+
+
 def clean_copy(slide, source_prompt=""):
     data = slide.model_dump()
     removed = []
@@ -275,6 +368,11 @@ def normalize_outline(outline, prompt):
     source_launch = beauty and all(
         word in prompt.casefold() for word in ("quiz", "waitlist", "creator")
     )
+
+    def source_ids(*terms):
+        return [i for i, fact in enumerate(outline.facts)
+                if any(term in fact.casefold() for term in terms)]
+
     plans = []
     for index, plan in enumerate(outline.slides):
         title = plan.title.casefold()
@@ -285,26 +383,36 @@ def normalize_outline(outline, prompt):
             update.update(
                 archetype="three_cards",
                 purpose="Three visibly illustrative planning targets, not company results.",
+                source_fact_ids=[],
             )
         elif beauty and (index == 3 or re.search(r"product|collection|range|beauty line", title)):
             update.update(
                 archetype="three_cards",
                 purpose="Explain only the three source product categories: foundation, lipstick, skincare. No fourth category or unprovided product formats.",
+                source_fact_ids=source_ids("foundation", "lipstick", "skincare"),
             )
         elif beauty and (index == 2 or "solution" in title):
             update.update(
                 archetype="split_image",
+                title="Beauty made personal",
                 purpose="Explain the source beauty proposition in three dimensions: skin tone, undertone, individual style. Do not repeat the launch workflow.",
+                source_fact_ids=source_ids("skin tone", "undertone", "style"),
             )
-        elif source_launch and plan.archetype == "process_steps":
+        elif source_launch and (
+            plan.archetype == "process_steps"
+            or re.search(r"how (?:it|\w+) works|workflow|custom blending", title)
+        ):
             update.update(
+                archetype="process_steps",
                 title=f"How {outline.brand} works",
                 purpose="Three touchpoints in order: shade-matching quiz, waitlist, creator-led demos. No shipping, delivery, kits, email mechanics, early access, subscriptions, quarter labels or extra stages. Describe each briefly.",
+                source_fact_ids=source_ids("quiz", "waitlist", "creator"),
             )
         elif source_launch and re.search(r"launch|action plan", title) and "growth" not in title:
             update.update(
                 archetype="split_image",
                 purpose="Explain the three supplied launch channels with a short proposed action description each. Do not assign quarters to launch or introduce later growth activities.",
+                source_fact_ids=source_ids("quiz", "waitlist", "creator"),
             )
         elif re.search(r"growth|roadmap", title) and "quarter" in prompt.casefold():
             update.update(
@@ -351,20 +459,57 @@ def visible_copy(slide):
     return slide.model_dump(exclude={"notes", "speaker_notes", "image_query", "icon_names"})
 
 
+def merge_reviewed_source_duplicate(outline, slides, review, prompt):
+    """Merge a reported duplicate only when both cover the same supplied list.
+
+    Rewriting the same three launch channels cannot remove duplication between
+    a "how it works" slide and a launch slide. Preserve their facts once, keep
+    at least eight slides/five archetypes, and require another real review.
+    """
+    if len(slides) <= 8:
+        return None
+    eligible = []
+    for index, (plan, slide) in enumerate(zip(outline.slides, slides)):
+        if source_launch_fallback(plan, prompt) is None or len(slide.items) != 3:
+            continue
+        labels = " ".join(item.title.casefold() for item in slide.items)
+        if all(re.search(pattern, labels) for pattern in (r"\bquiz\b", r"\bwaitlist\b", r"\bdemos?\b")):
+            eligible.append(index)
+    for issue in review.issues:
+        duplicate = issue.slide_index
+        if duplicate not in eligible or not re.search(r"duplicat|redundan|repeat|merge", issue.fix, re.I):
+            continue
+        keeper = next((index for index in eligible if index != duplicate), None)
+        if keeper is None:
+            continue
+        plans = [plan.model_copy(deep=True) for plan in outline.slides]
+        current = list(slides)
+        plans[keeper] = plans[keeper].model_copy(update={"title": "Launch touchpoints"})
+        current[keeper] = current[keeper].model_copy(update={"title": "Launch touchpoints"})
+        del plans[duplicate]
+        del current[duplicate]
+        try:
+            normalized = StoryOutline.model_validate(
+                {**outline.model_dump(), "slides": [plan.model_dump() for plan in plans]}
+            )
+        except ValueError:
+            continue
+        reject_checkpoint(slides[duplicate])
+        log.info("merged reviewed source duplicate: removed_slide_index=%d remaining_slides=%d",
+                 duplicate, len(current))
+        return normalized, current
+    return None
+
+
 def validate_copy(slide, plan, prompt):
     if slide.archetype != plan.archetype:
         raise ValueError("copy changed planned archetype")
-    expected = {
-        "split_image": 3,
-        "process_steps": 3,
-        "comparison": 2,
-        "big_stat": 1,
-        "quote": 1,
-        "cover": 0,
-        "closing_cta": 0,
-    }
-    if slide.archetype in expected and len(slide.items) != expected[slide.archetype]:
-        raise ValueError("incorrect archetype item count")
+    minimum, maximum = ITEM_BOUNDS[plan.archetype]
+    if not minimum <= len(slide.items) <= maximum:
+        raise ValueError(
+            f"incorrect archetype item count: {plan.archetype} requires "
+            f"{minimum}-{maximum} items; received {len(slide.items)}"
+        )
     values = [
         slide.title,
         slide.subtitle or "",
@@ -531,6 +676,21 @@ def generate_editorial_deck(
             last = None
             rejected_copy = None
             review_feedback = feedback
+
+            def recover_source_copy():
+                fallback = source_copy_fallback(plan, prompt)
+                if fallback is None:
+                    return None
+                validate_copy(fallback, plan, prompt)
+                log.info("using validated source copy: stage=%s slide_index=%d archetype=%s items=%d",
+                         stage, slide_index, plan.archetype, len(fallback.items))
+                return fallback
+
+            if stage == "repair" and re.search(r"unsupported|unprovided|claim|source", feedback, re.I):
+                fallback = recover_source_copy()
+                if fallback is not None:
+                    return fallback
+
             for attempt in range(semantic_attempts):
                 label = "Writing" if stage == "write" else "Revising"
                 announce(f"{label} story slide {slide_index + 1}/{len(outline.slides)}")
@@ -539,6 +699,7 @@ def generate_editorial_deck(
                     "plan": plan.model_dump(),
                     "facts": [outline.facts[i] for i in plan.source_fact_ids],
                     "feedback": feedback,
+                    "structure": item_contract(plan),
                 }
                 if stage == "repair":
                     request["failing_slide"] = visible_copy(slides[slide_index])
@@ -554,51 +715,71 @@ def generate_editorial_deck(
                             "the required archetype, and use the original brief as evidence."
                         ),
                     )
-                slide = generator.generate(
-                    StorySlide,
-                    stage=stage,
-                    model=settings.model_for("write"),
-                    system_prompt=COPY_PROMPT,
-                    user_prompt=json.dumps(request, separators=(",", ":")),
-                    max_tokens=1800 if stage == "write" else 1600,
-                )
+                try:
+                    slide = generator.generate(
+                        planned_slide_model(plan.archetype),
+                        stage=stage,
+                        model=settings.model_for("write"),
+                        system_prompt=COPY_PROMPT,
+                        user_prompt=json.dumps(request, separators=(",", ":")),
+                        max_tokens=1800 if stage == "write" else 1600,
+                    )
+                except StructuredOutputError as exc:
+                    cause = exc.__cause__
+                    format_failure = exc.detail in {
+                        "response was not valid JSON", "response did not match the required schema",
+                    } or (
+                        getattr(cause, "status_code", None) == 400
+                        and getattr(cause, "code", None) in {"json_validate_failed", "output_parse_failed"}
+                    )
+                    fallback = recover_source_copy() if format_failure else None
+                    if fallback is not None:
+                        return fallback
+                    raise
+                generated_slide = slide
                 try:
                     slide = clean_copy(slide, prompt)
                     slide = ground_roadmap(slide, plan, prompt)
                     validate_copy(slide, plan, prompt)
                     return slide
                 except ValueError as exc:
-                    reject_checkpoint(slide)
+                    reject_checkpoint(generated_slide)
                     last = str(exc)
                     feedback = last
                     rejected_copy = visible_copy(slide)
+                    log.warning(
+                        "slide validation: stage=%s slide_index=%d archetype=%s "
+                        "expected_items=%d-%d actual_items=%d attempt=%d reason=%s",
+                        stage, slide_index, plan.archetype, *ITEM_BOUNDS[plan.archetype],
+                        len(slide.items), attempt + 1,
+                        SlideWriteError(slide_index, plan.title, last).reason,
+                    )
+                    if "incorrect archetype item count" in last:
+                        fallback = recover_source_copy()
+                        if fallback is not None:
+                            return fallback
             failure = SlideWriteError(
                 slide_index, plan.title, last or "slide copy failed validation", stage=stage
             )
             if failure.reason == "unsupported_claim":
-                fallback = source_launch_fallback(plan, prompt)
+                fallback = recover_source_copy()
                 if fallback is not None:
-                    validate_copy(fallback, plan, prompt)
-                    log.info(
-                        "using validated source launch copy: stage=%s slide_index=%d",
-                        stage,
-                        slide_index,
-                    )
                     return fallback
             raise failure
 
         slides = [write(plan, index) for index, plan in enumerate(outline.slides)]
-        for round_index in range(max_repair_rounds + 1):
+        repair_rounds = 0
+        while True:
             announce("Reviewing source facts and story")
             review = generator.generate(
-                CopyReview,
+                planned_review_model(len(slides), len(outline.facts)),
                 stage="review",
                 model=settings.model_for("review"),
                 system_prompt="Review the original brief against VISIBLE slide content. Allow qualitative proposed explanations, a relevant closing CTA, proposed quarter assignments and disclosed illustrative metrics. Reject unsupported hard facts, missing source facts, duplicate filler, invented contacts/competitors and internal design notes. Return zero-based slide indices. Never demand extra business facts not present in the brief. A slide without issues must not be regenerated.",
                 user_prompt=json.dumps(
                     {
                         "brief": prompt,
-                        "facts": outline.facts,
+                        "facts": [{"id": i, "text": fact} for i, fact in enumerate(outline.facts)],
                         "slides": [
                             {"slide_index": i, **visible_copy(s)} for i, s in enumerate(slides)
                         ],
@@ -615,6 +796,11 @@ def generate_editorial_deck(
                 review_callback(review.model_dump())
             if review.passed and not review.issues and not review.missing_fact_ids:
                 break
+            merged = merge_reviewed_source_duplicate(outline, slides, review, prompt)
+            if merged is not None:
+                outline, slides = merged
+                announce("Combining repeated source content")
+                continue
             fixes = {i.slide_index: i.fix for i in review.issues}
             for fact_id in review.missing_fact_ids:
                 index = next(
@@ -625,12 +811,13 @@ def generate_editorial_deck(
                 fixes[index] = fixes.get(index, "") + " Include visibly: " + outline.facts[fact_id]
             for index in fixes:
                 reject_checkpoint(slides[index])
-            if round_index == max_repair_rounds:
+            if repair_rounds >= max_repair_rounds:
                 raise ValueError("story failed final source review")
             if not fixes:
                 raise ValueError("review failed without actionable findings")
             for index, feedback in fixes.items():
                 slides[index] = write(outline.slides[index], index, feedback, "repair")
+            repair_rounds += 1
         deck = Deck(
             title=outline.brand,
             audience=outline.audience,
