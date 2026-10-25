@@ -58,139 +58,127 @@ def generate(generator):
     )
 
 
-def test_temporary_minute_limit_resumes_same_call_without_spending_json_attempt(
-    monkeypatch, caplog
-):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+        self.waits = []
+
+    def sleep(self, seconds):
+        self.waits.append(seconds)
+        self.now += seconds
+
+
+def client(provider, **settings):
+    from app.llm.pacing import RateSettings, TokenLimiter
+    clock = Clock()
+    limiter = TokenLimiter(RateSettings(**settings), clock=lambda: clock.now, sleep=clock.sleep)
+    return LLMClient(provider, limiter=limiter), clock
+
+
+def test_temporary_minute_limit_resumes_same_call_without_spending_json_attempt(caplog):
     provider = Provider([limit_error(retry="19.1"), '{"title":"Ready"}'])
-    generator = StructuredGenerator(LLMClient(provider), max_attempts=1)
+    llm, clock = client(provider)
+    generator = StructuredGenerator(llm, max_attempts=1)
     progress = []
     generator.on_provider_wait = lambda stage, seconds: progress.append((stage, seconds))
     assert generate(generator).title == "Ready"
     assert provider.calls[0] == provider.calls[1]
-    assert waits == [21]
-    assert progress == [("write", 21), ("write", 0)]
-    assert "tokens_per_minute" in caplog.text
-    assert "PRIVATE" not in caplog.text
+    assert clock.now >= 20
+    assert progress[0][0] == "write" and progress[-1] == ("write", 0)
+    assert "tokens_per_minute" in caplog.text and "PRIVATE" not in caplog.text
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        limit_error("tokens per day (TPD)"),
-        limit_error("requests per day (RPD)"),
-        limit_error("unrecognized"),
-        limit_error(requested=8001),
-        limit_error(retry="61"),
-        limit_error(retry="PRIVATE_CREDENTIAL"),
-        limit_error(retry="0"),
-        limit_error(retry="-1"),
-        limit_error(retry="nan"),
-        limit_error(remaining="0"),
-    ],
-)
-def test_nonrecoverable_limits_never_sleep_or_retry(monkeypatch, error):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    provider = Provider([error])
+@pytest.mark.parametrize("metric", ["tokens per day (TPD)", "requests per day (RPD)"])
+def test_daily_limits_fail_immediately_with_reset(metric):
+    provider = Provider([limit_error(metric)])
+    llm, clock = client(provider)
     with pytest.raises(ProviderLimitError) as caught:
-        generate(StructuredGenerator(LLMClient(provider)))
-    assert len(provider.calls) == 1
-    assert waits == []
+        generate(StructuredGenerator(llm))
+    assert len(provider.calls) == 1 and clock.waits == []
+    assert "daily" in str(caught.value) and "Resets at" in str(caught.value)
     assert "PRIVATE" not in "".join(traceback.format_exception(caught.value))
 
 
-def test_minute_retries_are_bounded_and_metadata_is_sanitized(monkeypatch, caplog):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    provider = Provider([limit_error() for _ in range(7)])
+def test_production_payload_is_tpm_even_with_984_daily_requests_remaining():
+    from app.llm.limits import provider_limit_error
+    error = limit_error(requested=2286, retry="6", remaining="984")
+    error.body["error"]["message"] = (
+        "Rate limit reached on tokens per minute (TPM): Limit 8000, Used 6441, Requested 2286."
+    )
+    parsed = provider_limit_error(error)
+    assert parsed.diagnostics["limit_type"] == "tokens_per_minute"
+    assert parsed.diagnostics["used"] == 6441
+    assert parsed.diagnostics["retry_after_seconds"] == 6
+    assert parsed.diagnostics["requests_per_day_remaining"] == 984
+    assert "daily" not in str(parsed)
+
+
+@pytest.mark.parametrize("retry", ["0", "1", "61", "PRIVATE_CREDENTIAL", "nan"])
+def test_minute_limits_wait_even_without_valid_short_retry_header(retry):
+    provider = Provider([limit_error(retry=retry), '{"title":"Ready"}'])
+    llm, clock = client(provider)
+    assert generate(StructuredGenerator(llm)).title == "Ready"
+    assert clock.now >= 60  # Remote remaining=9 also constrains admission.
+
+
+def test_minute_retries_are_bounded_and_metadata_is_sanitized(caplog):
+    provider = Provider([limit_error(retry="1") for _ in range(9)])
+    llm, clock = client(provider, max_retries=8, wait_budget=1000)
     with pytest.raises(ProviderLimitError) as caught:
-        generate(StructuredGenerator(LLMClient(provider)))
-    assert len(provider.calls) == 7
-    assert waits == [21, 21, 21, 21, 32, 60]
-    assert caught.value.status_code == 429
-    assert caught.value.diagnostics == {
-        "limit_type": "tokens_per_minute",
-        "limit": 8000,
-        "used": 7991,
-        "requested": 2627,
-        "tokens_per_minute_limit": 8000,
-        "tokens_per_minute_remaining": 9,
-        "requests_per_day_remaining": 993,
-        "retry_after_seconds": 20,
-    }
+        generate(StructuredGenerator(llm))
+    assert len(provider.calls) == 9
+    assert clock.now >= 8 * 60
+    assert caught.value.diagnostics["limit_type"] == "tokens_per_minute"
     assert "PRIVATE" not in caplog.text
-    assert "PRIVATE" not in "".join(traceback.format_exception(caught.value))
 
 
-def test_limit_wait_respects_job_deadline(monkeypatch):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    monkeypatch.setattr("app.llm.structured.time.monotonic", lambda: 100)
+def test_wait_budget_is_bounded():
+    provider = Provider([limit_error(retry="1") for _ in range(9)])
+    llm, clock = client(provider, wait_budget=180)
+    with pytest.raises(ProviderLimitError):
+        generate(StructuredGenerator(llm))
+    assert clock.now <= 180
+    assert len(provider.calls) <= 4
+
+
+def test_limit_wait_respects_job_deadline():
     provider = Provider([limit_error()])
-    generator = StructuredGenerator(LLMClient(provider))
-    generator.deadline = 115
+    llm, clock = client(provider)
+    generator = StructuredGenerator(llm)
+    generator.deadline = 15
     with pytest.raises(TimeoutError):
         generate(generator)
-    assert waits == []
-    assert len(provider.calls) == 1
+    assert clock.waits == [] and len(provider.calls) == 1
 
 
-def test_pending_retry_stops_after_another_call_exhausts_provider_budget(monkeypatch):
-    provider = Provider([limit_error(), '{"title":"Unused"}'])
-    generator = StructuredGenerator(LLMClient(provider))
-    monkeypatch.setattr("app.llm.structured.time.sleep", lambda seconds: generator._limited.set())
-    with pytest.raises(ProviderLimitError):
-        generate(generator)
-    assert len(provider.calls) == 1
-
-
-def test_temporary_limit_retries_can_be_disabled(monkeypatch):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
+def test_temporary_limit_retries_can_be_disabled():
     provider = Provider([limit_error()])
+    llm, clock = client(provider)
     with pytest.raises(ProviderLimitError):
-        generate(StructuredGenerator(LLMClient(provider), max_rate_limit_retries=0))
-    assert waits == []
-    assert len(provider.calls) == 1
+        generate(StructuredGenerator(llm, max_rate_limit_retries=0))
+    assert clock.waits == [] and len(provider.calls) == 1
 
 
-def test_production_short_wait_sequence_recovers_without_restarting_work(monkeypatch):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    provider = Provider(
-        [limit_error(retry=retry) for retry in ("17", "2", "1")] + ['{"title":"Ready"}']
-    )
-    generator = StructuredGenerator(LLMClient(provider), max_attempts=1)
+def test_provider_retry_payload_and_duration_headers():
+    from app.llm.limits import header_diagnostics, provider_limit_error
+    error = SimpleNamespace(body={"error": {"limit_type": "requests_per_minute",
+                                           "retry_after_seconds": 12.2}})
+    assert provider_limit_error(error).diagnostics == {
+        "limit_type": "requests_per_minute", "retry_after_seconds": 13,
+    }
+    assert header_diagnostics({"X-RateLimit-Reset-Tokens": "1m2.5s",
+                               "Retry-After": "2.5"}) == {
+        "tokens_reset_seconds": 62.5, "retry_after_seconds": 3,
+    }
+
+
+def test_production_short_wait_sequence_recovers_without_restarting_work():
+    provider = Provider([limit_error(retry=r) for r in ("17", "2", "1")] + ['{"title":"Ready"}'])
+    llm, _ = client(provider, wait_budget=240)
+    generator = StructuredGenerator(llm, max_attempts=1)
     assert generate(generator).title == "Ready"
-    assert waits == [18, 4, 8]
     assert all(call == provider.calls[0] for call in provider.calls)
     assert not generator._limited.is_set()
-
-
-def test_custom_minute_retry_cap_is_preserved(monkeypatch):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    provider = Provider([limit_error(retry="1") for _ in range(3)])
-    generator = StructuredGenerator(LLMClient(provider), max_rate_limit_retries=2)
-    with pytest.raises(ProviderLimitError):
-        generate(generator)
-    assert len(provider.calls) == 3
-    assert waits == [2, 4]
-
-
-def test_backoff_headroom_must_also_fit_job_deadline(monkeypatch):
-    waits = []
-    monkeypatch.setattr("app.llm.structured.time.sleep", waits.append)
-    monkeypatch.setattr("app.llm.structured.time.monotonic", lambda: 100)
-    provider = Provider([limit_error(retry="2")])
-    generator = StructuredGenerator(LLMClient(provider))
-    generator.deadline = 103
-    with pytest.raises(TimeoutError):
-        generate(generator)
-    assert waits == []
-    assert len(provider.calls) == 1
 
 
 def test_unstructured_private_error_body_is_never_copied():

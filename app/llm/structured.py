@@ -2,7 +2,7 @@
 
 import json
 import logging
-import time
+import os
 from threading import Event
 from collections.abc import Mapping
 from typing import Any, TypeVar
@@ -12,6 +12,7 @@ from pydantic import BaseModel, ValidationError
 from app.core.errors import LLMProviderError, ProviderLimitError, StructuredOutputError
 from app.llm.client import LLMClient
 from app.llm.limits import safe_label
+from app.llm.checkpoints import checkpoint_key, load_checkpoint, save_checkpoint, tag_checkpoint
 from app.llm.schema import GPT_OSS_MODELS, recovery_format
 from app.llm.usage import TokenUsage, usage_scope
 
@@ -35,13 +36,13 @@ def _is_provider_json_validation_error(exc: LLMProviderError) -> bool:
 
 class StructuredGenerator:
     def __init__(
-        self, client: LLMClient, *, max_attempts: int = 2, max_rate_limit_retries: int = 6
+        self, client: LLMClient, *, max_attempts: int = 2, max_rate_limit_retries: int | None = None
     ):
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
         self.client = client
         self.max_attempts = max_attempts
-        if max_rate_limit_retries < 0:
+        if max_rate_limit_retries is not None and max_rate_limit_retries < 0:
             raise ValueError("max_rate_limit_retries cannot be negative")
         self.max_rate_limit_retries = max_rate_limit_retries
         self.deadline = None
@@ -51,53 +52,10 @@ class StructuredGenerator:
         self._limited = Event()
 
     def _complete(self, *, stage: str, **kwargs) -> str:
-        """Resume only a temporarily throttled call, within the job deadline."""
-        for retry in range(self.max_rate_limit_retries + 1):
-            if self.deadline is not None and time.monotonic() >= self.deadline:
-                raise TimeoutError("deck generation exceeded its time limit")
-            if self._limited.is_set():
-                raise ProviderLimitError()
-            try:
-                return self.client.complete(**kwargs)
-            except ProviderLimitError as exc:
-                details = exc.diagnostics
-                seconds = details.get("retry_after_seconds")
-                oversized = details.get("requested", 0) > details.get("limit", float("inf"))
-                temporary = (
-                    details.get("limit_type")
-                    in {
-                        "tokens_per_minute",
-                        "requests_per_minute",
-                        "input_tokens_per_minute",
-                        "output_tokens_per_minute",
-                    }
-                    and type(seconds) is int
-                    and 0 < seconds <= 60
-                    and not oversized
-                    and details.get("requests_per_day_remaining") != 0
-                )
-                if not temporary or retry == self.max_rate_limit_retries:
-                    raise
-                # Retry-After can land on the edge of the provider's rolling
-                # window. Leave headroom and back off repeated short 429s;
-                # otherwise a 17s, 2s, 1s sequence exhausts retries just before
-                # enough tokens become available. Keep the request unchanged.
-                seconds = max(seconds + 1, min(2 ** (retry + 1), 60))
-                if self.deadline is not None and time.monotonic() + seconds >= self.deadline:
-                    raise TimeoutError("deck generation exceeded its time limit") from None
-                log.warning(
-                    "provider minute limit: stage=%s model=%s waiting_seconds=%s retry=%s details=%s",
-                    safe_label(stage),
-                    safe_label(kwargs["model"]),
-                    seconds,
-                    retry + 1,
-                    details,
-                )
-                if self.on_provider_wait is not None:
-                    self.on_provider_wait(stage, seconds)
-                time.sleep(seconds)
-                if self.on_provider_wait is not None:
-                    self.on_provider_wait(stage, 0)
+        return self.client.complete(
+            stage=stage, deadline=self.deadline, on_wait=self.on_provider_wait,
+            max_retries=self.max_rate_limit_retries, **kwargs,
+        )
 
     def generate(
         self,
@@ -112,6 +70,15 @@ class StructuredGenerator:
         response_schema: Mapping[str, Any] | None = None,
         image_urls: list[str] | None = None,
     ) -> T:
+        key = checkpoint_key(
+            output_model, stage=stage, model=model, system_prompt=system_prompt,
+            user_prompt=user_prompt, temperature=temperature,
+            max_tokens=os.getenv(f"LLM_{stage.upper()}_MAX_TOKENS") or max_tokens,
+            response_schema=response_schema, image_urls=image_urls,
+        )
+        cached = load_checkpoint(key)
+        if cached is not None:
+            return tag_checkpoint(output_model.model_validate_json(cached), key)
         # A stage may narrow references to the current job's IDs. The output
         # model and stage validators remain authoritative after generation.
         schema = (
@@ -123,7 +90,7 @@ class StructuredGenerator:
                 "content": (
                     f"{system_prompt}\nReturn only one JSON object matching this schema. "
                     f"Do not include markdown or commentary.\nJSON Schema:\n"
-                    f"{json.dumps(schema, ensure_ascii=False)}"
+                    f"{json.dumps(schema, ensure_ascii=False, separators=(',', ':'))}"
                 ),
             },
             {
@@ -145,10 +112,11 @@ class StructuredGenerator:
             try:
                 options = {}
                 if model in GPT_OSS_MODELS:
-                    # Strict decoding starts on the first call. Preserve the
-                    # previous normal reasoning default; only correction calls
-                    # use the existing low-effort recovery policy.
-                    options["reasoning_effort"] = "medium" if attempt == 1 else "low"
+                    # Single-slide copy needs room for final JSON within the
+                    # smaller completion budget, including hidden reasoning.
+                    options["reasoning_effort"] = (
+                        "medium" if attempt == 1 and stage not in {"write", "repair"} else "low"
+                    )
                 with usage_scope(self.usage, stage):
                     raw = self._complete(
                         stage=stage,
@@ -209,7 +177,10 @@ class StructuredGenerator:
                 continue
 
             try:
-                return output_model.model_validate(_decode_json(raw))
+                result = output_model.model_validate(_decode_json(raw))
+                if stage != "review" or getattr(result, "passed", True):
+                    save_checkpoint(key, result.model_dump_json())
+                return tag_checkpoint(result, key)
             except (json.JSONDecodeError, ValidationError, TypeError, ValueError) as exc:
                 # Corrections go back to the provider, but stored exception
                 # details must never echo generated text or validator input.

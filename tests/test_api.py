@@ -39,6 +39,10 @@ def test_api_full_submit_status_and_download_flow(tmp_path):
     app, _, _ = make_app(tmp_path)
     with TestClient(app) as client:
         assert client.get("/healthz").json() == {"ok": True}
+        llm_health = client.get("/api/health/llm")
+        assert llm_health.status_code == 200
+        assert llm_health.json()["tpm_limit"] == 8000
+        assert llm_health.headers["cache-control"] == "no-store"
         created = client.post("/api/jobs", json={"prompt": "Create a Blush investor presentation"})
         assert created.status_code == 202
         job_id = created.json()["id"]

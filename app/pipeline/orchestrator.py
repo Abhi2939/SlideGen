@@ -74,7 +74,7 @@ def generate_legacy_deck(
             "repair": "Revising slide content",
         }
         announce(
-            f"Waiting {seconds}s for the AI provider's per-minute limit"
+            f"Waiting for AI rate limit (~{seconds}s)..."
             if seconds
             else stage_labels.get(stage, "Generating presentation")
         )

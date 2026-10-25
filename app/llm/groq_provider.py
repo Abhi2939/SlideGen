@@ -10,6 +10,16 @@ from app.llm.usage import record_usage
 from app.llm.schema import GPT_OSS_MODELS
 
 
+class Completion(str):
+    """String-compatible result carrying safe transport metadata."""
+
+    def __new__(cls, content, headers, usage):
+        result = super().__new__(cls, content)
+        result.headers = headers
+        result.usage = usage
+        return result
+
+
 class GroqProvider:
     def __init__(
         self,
@@ -56,7 +66,14 @@ class GroqProvider:
             request["reasoning_effort"] = reasoning_effort
         if max_tokens is not None:
             request["max_completion_tokens"] = max_tokens
-        result = self._client.chat.completions.create(**request)
+        completions = self._client.chat.completions
+        if hasattr(completions, "with_raw_response"):
+            response = completions.with_raw_response.create(**request)
+            result = response.parse()
+            headers = response.headers
+        else:  # Lightweight provider doubles may expose only create().
+            result = completions.create(**request)
+            headers = {}
         record_usage(getattr(result, "usage", None))
         content = result.choices[0].message.content
-        return content or ""
+        return Completion(content or "", headers, getattr(result, "usage", None))

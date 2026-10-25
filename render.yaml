@@ -12,6 +12,20 @@ services:
       mountPath: /var/data
       sizeGB: 1
     envVars:
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: LLM_TPM_LIMIT
+        value: "8000"
+      - key: LLM_SAFETY_MARGIN
+        value: "0.85"
+      - key: LLM_CONCURRENCY
+        value: "1"
+      - key: LLM_MAX_RETRIES
+        value: "8"
+      - key: LLM_WAIT_BUDGET_SECONDS
+        value: "180"
+      - key: LLM_FALLBACK_AFTER_SECONDS
+        value: "30"
       - key: SLIDEGEN_DESIGN_PIPELINE
         value: editorial
       - key: SLIDEGEN_VISION_MODEL

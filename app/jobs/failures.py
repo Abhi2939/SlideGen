@@ -52,7 +52,7 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
     )
     if isinstance(exc, ProviderLimitError):
         failure.code = "provider_limit"
-        failure.message = str(ProviderLimitError())
+        failure.message = str(exc)
     elif isinstance(exc, TimeoutError):
         failure.code = "generation_timeout"
         failure.message = "Generation exceeded its time limit before the presentation was ready."

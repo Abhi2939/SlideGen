@@ -167,7 +167,7 @@ def test_provider_parse_error_recovers_without_reusing_failed_generation(code, n
 
 
 @pytest.mark.parametrize("model", ["openai/gpt-oss-20b", "openai/gpt-oss-120b"])
-def test_supported_model_uses_strict_schema_before_first_attempt_without_lowering_normal_effort(
+def test_slide_copy_uses_strict_schema_and_low_reasoning_within_small_budget(
     model,
 ):
     provider = FakeProvider(['{"title":7}', '{"title":"Ready"}'])
@@ -185,7 +185,7 @@ def test_supported_model_uses_strict_schema_before_first_attempt_without_lowerin
     schema = first["response_format"]["json_schema"]["schema"]
     assert schema["required"] == ["title"]
     assert schema["additionalProperties"] is False
-    assert first["reasoning_effort"] == "medium"
+    assert first["reasoning_effort"] == "low"
     assert correction["reasoning_effort"] == "low"
     assert first["max_tokens"] == correction["max_tokens"] == 1600
     assert "additionalProperties" not in Result.model_json_schema()

@@ -179,12 +179,17 @@
     }
 
     async function pollJob(jobId) {
+      let lastState = '';
+      let delayMs = pollIntervalMs;
       const startedAt = Date.now();
       while (true) {
-        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
         const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
         if (!response.ok) throw new Error(await responseDetail(response));
         const job = await response.json();
+        const state = JSON.stringify([job.status, job.stage, job.queue_position]);
+        delayMs = state === lastState ? Math.min(3000, delayMs + 500) : pollIntervalMs;
+        lastState = state;
         if (job.status === 'done') {
           downloadLink.href = `/api/jobs/${encodeURIComponent(jobId)}/download`;
           downloadBox.classList.add('visible');

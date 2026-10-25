@@ -1,6 +1,7 @@
 """Write planned slides as typed deck-schema models with bounded parallelism."""
 
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from contextvars import copy_context
 import json
 from threading import Event
 import re
@@ -32,6 +33,7 @@ from app.core.errors import (
     LLMProviderError,
 )
 from app.llm.structured import StructuredGenerator
+from app.llm.checkpoints import reject_checkpoint
 from app.pipeline.grounding import (
     is_supported_paraphrase,
     unsupported_claim_categories,
@@ -771,7 +773,7 @@ def _write_one(
     request = (
         f"Write slide {plan.index + 1} of {len(outline.slides)}.\n"
         f"ORIGINAL USER REQUEST:\n{prompt}\n\n"
-        f"DECK BRIEF:\n{analysis.model_dump_json(indent=2)}\n\n"
+        f"DECK CONTEXT: {analysis.deck_title}; audience={analysis.audience}; tone={analysis.tone}\n\n"
         f"SLIDE PLAN:\n{plan.model_dump_json(indent=2)}\n\n"
         f"FACTS ASSIGNED TO THIS SLIDE:\n"
         f"{json.dumps([fact.model_dump(mode='json') for fact in assigned_facts], ensure_ascii=False, indent=2)}"
@@ -963,6 +965,7 @@ def _write_one(
                 raise ValueError(f"generated slide omitted verbatim fact IDs: {missing_verbatim}")
             return slide
         except ValueError as exc:
+            reject_checkpoint(slide)
             last_error = exc
             if (
                 str(exc)
@@ -1161,6 +1164,7 @@ def _write_indices(
 
         def submit(index):
             return executor.submit(
+                copy_context().run,
                 write_unless_limited,
                 prompt,
                 analysis,

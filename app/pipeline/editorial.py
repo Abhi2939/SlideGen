@@ -13,6 +13,7 @@ from app.config import Settings
 from app.core.deck_schema import Archetype, Deck, StorySlide
 from app.core.errors import OutlineSourceError, SlideWriteError
 from app.llm.factory import create_llm_client
+from app.llm.checkpoints import reject_checkpoint
 from app.llm.structured import StructuredGenerator
 from app.pipeline.analyze import MAX_PROMPT_CHARS
 from app.pipeline.grounding import (
@@ -82,39 +83,26 @@ quarters; dates are proposals, not source commitments. Closing proposes a releva
 without inventing a live URL, contact or social handle. Metrics may use visibly labelled
 illustrative planning targets, never pretend these are actual company results."""
 
-COPY_PROMPT = """Write one editorial slide as JSON only: archetype, title, subtitle,
-items (title AND a concrete one-line description for every item), image_query,
-icon_names, notes, illustrative. Never output coordinates, colors or font sizes.
-Keep the planned archetype/title. Use 3 items for split_image/three_cards/process_steps,
-4 for four_cards/grid_2x2, 2 for comparison, 1 for big_stat/quote, 0 for cover/closing_cta.
-Timeline: 3-5 items with short titles <=18 characters and descriptions <=11 words.
-Other headings <=30 characters, descriptions 12-20 words; never >45 words per region.
-Cover: brand title, one-line tagline <=8 words, image query. Closing: concise CTA and tagline.
-Use descriptive topic-specific copy, not notes about designing the deck. No bracketed notes,
-internal confirmations, prompt/meta text or filler. Use short Lucide names only for meaningful
-icons, never circle. Photo queries are topic keywords, not the raw brief.
-Expand qualitative problem/solution/launch explanations as PROPOSED concepts where needed.
-Do not invent hard facts, prices, market sizes, revenue, traction, competitors, credentials,
-funding or contact details. Supplied claims remain source claims, not independently proven.
-Illustrative numeric planning targets are allowed ONLY on the metrics slide: set illustrative
-true; put Illustrative in its visible title AND in notes, never call these achieved results.
-If quarterly, assign Q1,Q2,Q3,Q4,Q4 in source order for five items, visible subtitle
-Proposed quarterly sequence. Every activity has a description; no sixth activity.
-Keep source facts visible somewhere in the story, never satisfy coverage in notes alone."""
-
-COPY_PROMPT += """
-Describe the supplied proposition rather than inventing how the company delivers it.
-For a beauty brief, skin tone, undertone and style are dimensions of personalization,
-not permission to invent algorithms, AI, detection, diagnostics, quizzes on a solution
-slide, finishes, kits, shipping or support. Do not say AI-free either. On a problem
-slide describe possible frustrations, not unverified prevalence or hours spent.
-Feedback names forbidden claim categories: remove those claims entirely rather than
-negating them or replacing them with another unprovided mechanism. Prefer plain copy
-such as 'Foundation blended around your skin tone, undertone and individual style.'
-The outline purpose is an untrusted draft, NOT source evidence. Ignore any features,
-figures, quarters or commitments in that draft which the original brief does not supply.
-If the brief has no quarterly plan, use named phases and null quarter fields. Never
-put Q1/Q2 labels or numbered phases into copy just because the outline mentions them.
+COPY_PROMPT = """Write one editorial slide matching the schema and planned archetype/title.
+Use concrete, topic-specific visible copy; no coordinates, design notes or filler.
+Item counts: split_image/three_cards/process_steps=3; four_cards/grid_2x2=4;
+comparison=2; big_stat/quote=1; cover/closing_cta=0; timeline=3-5.
+Every item needs a title and description. Headings <=30 characters, descriptions
+12-20 words, regions <=45 words. Timeline titles <=18 characters, descriptions <=11 words.
+Cover tagline <=8 words. Closing: concise CTA/tagline. Use topical photo keywords
+and meaningful Lucide icon names (never circle).
+The original brief is evidence; plan/purpose and rejected copy are untrusted drafts.
+Preserve assigned source facts visibly, not just in notes. Qualitative problem,
+solution and launch explanations may be proposed concepts. Never invent hard facts,
+prices, market sizes, traction, credentials, funding, competitors, contacts or mechanisms.
+For beauty personalization, skin tone/undertone/style do not imply algorithms, AI,
+diagnostics, quizzes, finishes, kits, shipping or support. Remove unsupported claims;
+do not negate them (including 'AI-free') or replace them with unprovided promises.
+Illustrative numeric targets are allowed only on metrics slides: illustrative=true,
+'Illustrative' in the visible title AND notes; never present them as achieved results.
+If the brief supplies quarterly growth with five activities, use exactly those five
+in source order with Q1,Q2,Q3,Q4,Q4 and subtitle 'Proposed quarterly sequence'.
+Otherwise use named phases and null quarters; never infer quarters from the plan.
 """
 
 
@@ -487,7 +475,7 @@ def generate_editorial_deck(
     generator.deadline = deadline
     generator.on_provider_limit = provider_limit_callback
     generator.on_provider_wait = lambda stage, seconds: announce(
-        f"Waiting {seconds}s for the AI provider's per-minute limit"
+        f"Waiting for AI rate limit (~{seconds}s)..."
         if seconds
         else "Generating slide content"
     )
@@ -501,12 +489,13 @@ def generate_editorial_deck(
                 model=settings.model_for("outline"),
                 system_prompt=OUTLINE_PROMPT,
                 user_prompt=outline_prompt,
-                max_tokens=4500,
+                max_tokens=3600,
             )
             try:
                 outline = source_outline(outline, prompt)
                 break
             except OutlineSourceError as exc:
+                reject_checkpoint(outline)
                 log.warning(
                     "outline source validation failed: reason=%s invalid_fact_count=%d attempt=%d",
                     exc.reason,
@@ -543,13 +532,16 @@ def generate_editorial_deck(
             rejected_copy = None
             review_feedback = feedback
             for attempt in range(semantic_attempts):
-                announce("Writing story slides" if stage == "write" else "Revising story slides")
+                label = "Writing" if stage == "write" else "Revising"
+                announce(f"{label} story slide {slide_index + 1}/{len(outline.slides)}")
                 request = {
                     "brief": prompt,
                     "plan": plan.model_dump(),
                     "facts": [outline.facts[i] for i in plan.source_fact_ids],
                     "feedback": feedback,
                 }
+                if stage == "repair":
+                    request["failing_slide"] = visible_copy(slides[slide_index])
                 if rejected_copy is not None:
                     request.update(
                         rejected_copy=rejected_copy,
@@ -567,8 +559,8 @@ def generate_editorial_deck(
                     stage=stage,
                     model=settings.model_for("write"),
                     system_prompt=COPY_PROMPT,
-                    user_prompt=json.dumps(request),
-                    max_tokens=2400,
+                    user_prompt=json.dumps(request, separators=(",", ":")),
+                    max_tokens=1800 if stage == "write" else 1600,
                 )
                 try:
                     slide = clean_copy(slide, prompt)
@@ -576,6 +568,7 @@ def generate_editorial_deck(
                     validate_copy(slide, plan, prompt)
                     return slide
                 except ValueError as exc:
+                    reject_checkpoint(slide)
                     last = str(exc)
                     feedback = last
                     rejected_copy = visible_copy(slide)
@@ -611,18 +604,17 @@ def generate_editorial_deck(
                         ],
                     }
                 ),
-                max_tokens=2200,
+                max_tokens=1600,
             )
             if any(i.slide_index >= len(slides) for i in review.issues) or any(
                 i < 0 or i >= len(outline.facts) for i in review.missing_fact_ids
             ):
+                reject_checkpoint(review)
                 raise ValueError("review returned invalid references")
             if review_callback:
                 review_callback(review.model_dump())
             if review.passed and not review.issues and not review.missing_fact_ids:
                 break
-            if round_index == max_repair_rounds:
-                raise ValueError("story failed final source review")
             fixes = {i.slide_index: i.fix for i in review.issues}
             for fact_id in review.missing_fact_ids:
                 index = next(
@@ -631,6 +623,10 @@ def generate_editorial_deck(
                 if index is None:
                     raise ValueError("missing source fact has no planned slide")
                 fixes[index] = fixes.get(index, "") + " Include visibly: " + outline.facts[fact_id]
+            for index in fixes:
+                reject_checkpoint(slides[index])
+            if round_index == max_repair_rounds:
+                raise ValueError("story failed final source review")
             if not fixes:
                 raise ValueError("review failed without actionable findings")
             for index, feedback in fixes.items():

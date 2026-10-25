@@ -16,6 +16,7 @@ from app.jobs.store import Job, JobStore
 from app.jobs.failures import USER_ERROR, describe_failure, failure_location
 from app.llm.usage import TokenUsage
 from app.llm.limits import safe_label
+from app.llm.checkpoints import checkpoint_scope
 from app.pipeline.orchestrator import generate_deck
 from app.render.builder import build_deck
 
@@ -54,6 +55,8 @@ class JobRunner:
             max_workers=configured_workers,
             thread_name_prefix="slidegen-job",
         )
+        for job_id in store.queued_ids():
+            self._executor.submit(self._run, job_id)
 
     def submit(self, prompt: str, *, max_active: int | None = None) -> Job:
         self.store.cleanup_expired()
@@ -94,17 +97,13 @@ class JobRunner:
             self.store.mark_running(job_id)
             timeout_timer.start()
             if self._uses_default_generator:
-                deck = self.generate(
-                    job.prompt,
-                    deadline=deadline,
-                    progress_callback=report_stage,
-                    usage_callback=token_counts.update,
-                    provider_limit_callback=lambda: self.store.fail_if_running(
-                        job_id,
-                        str(ProviderLimitError()),
-                        failure=describe_failure(ProviderLimitError()),
-                    ),
-                )
+                with checkpoint_scope(self.store, job_id):
+                    deck = self.generate(
+                        job.prompt,
+                        deadline=deadline,
+                        progress_callback=report_stage,
+                        usage_callback=token_counts.update,
+                    )
             else:
                 report_stage("Generating presentation")
                 deck = self.generate(job.prompt)

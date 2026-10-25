@@ -373,7 +373,7 @@ def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, cap
         runner.close()
 
 
-def test_startup_recovery_marks_interrupted_jobs_failed(tmp_path):
+def test_startup_recovery_requeues_interrupted_jobs(tmp_path):
     store_before_restart = JobStore(tmp_path)
     queued = store_before_restart.create("Interrupted prompt")
     store_before_restart.mark_running(queued.id)
@@ -382,15 +382,13 @@ def test_startup_recovery_marks_interrupted_jobs_failed(tmp_path):
 
     recovered = store_after_restart.get(queued.id)
     assert recovered is not None
-    assert recovered.status == "failed"
-    assert (
-        recovered.error
-        == "Server restarted while this job was waiting or running. Please submit it again."
-    )
+    assert recovered.status == "queued"
+    assert recovered.error is None
+    assert recovered.stage == "Resuming after server restart"
     assert recovered.output_path is None
 
 
-def test_startup_recovery_marks_queued_jobs_failed(tmp_path):
+def test_startup_recovery_preserves_queued_jobs(tmp_path):
     store_before_restart = JobStore(tmp_path)
     queued = store_before_restart.create("Waiting prompt")
 
@@ -398,12 +396,10 @@ def test_startup_recovery_marks_queued_jobs_failed(tmp_path):
 
     recovered = store_after_restart.get(queued.id)
     assert recovered is not None
-    assert recovered.status == "failed"
-    assert (
-        recovered.error
-        == "Server restarted while this job was waiting or running. Please submit it again."
-    )
-    assert store_after_restart.count_active() == 0
+    assert recovered.status == "queued"
+    assert recovered.error is None
+    assert recovered.stage == "Resuming after server restart"
+    assert store_after_restart.count_active() == 1
 
 
 def test_job_store_migrates_existing_database_for_stage_tracking(tmp_path):

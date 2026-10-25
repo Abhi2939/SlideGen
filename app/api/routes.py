@@ -100,6 +100,14 @@ def healthz(response: Response) -> dict[str, bool]:
     return {"ok": True}
 
 
+@router.get("/api/health/llm")
+def llm_health(response: Response):
+    from app.llm.pacing import shared_limiter
+
+    response.headers["Cache-Control"] = "no-store"
+    return shared_limiter().snapshot()
+
+
 @router.post(
     "/api/jobs",
     response_model=CreateJobResponse,

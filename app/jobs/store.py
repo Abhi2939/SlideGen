@@ -98,6 +98,11 @@ class JobStore:
                 connection.execute("ALTER TABLE jobs ADD COLUMN stage TEXT")
             if "failure" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN failure TEXT")
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS job_checkpoints ("
+                "job_id TEXT NOT NULL, call_key TEXT NOT NULL, value TEXT NOT NULL, "
+                "PRIMARY KEY (job_id, call_key))"
+            )
             connection.execute("PRAGMA journal_mode=WAL")
 
     @staticmethod
@@ -132,6 +137,17 @@ class JobStore:
                 "VALUES (?, ?, 'queued', 'Waiting in queue', ?, ?)",
                 (job_id, prompt, now, now),
             )
+            # Resubmitting the same failed brief reuses completed calls; exact
+            # request/schema hashes prevent reuse after input/schema changes.
+            previous = connection.execute(
+                "SELECT id FROM jobs WHERE prompt = ? AND status = 'failed' "
+                "ORDER BY updated_at DESC LIMIT 1", (prompt,)
+            ).fetchone()
+            if previous:
+                connection.execute(
+                    "INSERT INTO job_checkpoints SELECT ?, call_key, value "
+                    "FROM job_checkpoints WHERE job_id = ?", (job_id, previous["id"])
+                )
             row = connection.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
         return self._from_row(row)  # type: ignore[return-value]
 
@@ -249,18 +265,47 @@ class JobStore:
         return self._from_row(row)  # type: ignore[return-value]
 
     def recover_interrupted_jobs(self) -> int:
-        """Fail jobs left queued or running by a previous server process."""
+        """Requeue unfinished jobs; the runner resumes their checkpoints."""
         now = _timestamp(_utc_now())
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "UPDATE jobs SET status = 'failed', error = ?, output_path = NULL, stage = NULL, updated_at = ? "
+                "UPDATE jobs SET status = 'queued', error = NULL, failure = NULL, "
+                "output_path = NULL, stage = ?, updated_at = ? "
                 "WHERE status IN ('queued', 'running')",
                 (
-                    "Server restarted while this job was waiting or running. Please submit it again.",
+                    "Resuming after server restart",
                     now,
                 ),
             )
         return cursor.rowcount
+
+    def queued_ids(self) -> list[str]:
+        with self._lock, self._connect() as connection:
+            return [row[0] for row in connection.execute(
+                "SELECT id FROM jobs WHERE status = 'queued' ORDER BY created_at, id"
+            )]
+
+    def load_checkpoint(self, job_id: str, key: str) -> str | None:
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT value FROM job_checkpoints WHERE job_id = ? AND call_key = ?",
+                (job_id, key),
+            ).fetchone()
+        return row[0] if row else None
+
+    def save_checkpoint(self, job_id: str, key: str, value: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO job_checkpoints (job_id, call_key, value) "
+                "SELECT ?, ?, ? WHERE EXISTS "
+                "(SELECT 1 FROM jobs WHERE id = ? AND status = 'running')",
+                (job_id, key, value, job_id),
+            )
+
+    def delete_checkpoint(self, job_id: str, key: str) -> None:
+        with self._lock, self._connect() as connection:
+            connection.execute("DELETE FROM job_checkpoints WHERE job_id = ? AND call_key = ?",
+                               (job_id, key))
 
     def recover_running_jobs(self) -> int:
         """Compatibility alias for startup recovery of all interrupted jobs."""
@@ -274,6 +319,8 @@ class JobStore:
                 "SELECT id, output_path FROM jobs WHERE created_at < ?", (cutoff,)
             ).fetchall()
             connection.executemany("DELETE FROM jobs WHERE id = ?", [(row["id"],) for row in rows])
+            connection.executemany("DELETE FROM job_checkpoints WHERE job_id = ?",
+                                   [(row["id"],) for row in rows])
         for row in rows:
             output = row["output_path"]
             if output:

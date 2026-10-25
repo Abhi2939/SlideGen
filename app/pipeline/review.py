@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from app.core.deck_schema import AskAllocationSlide, Bullet, BulletsSlide, Slide, TwoColumnSlide
 from app.llm.structured import StructuredGenerator
+from app.llm.checkpoints import reject_checkpoint
 from app.pipeline.models import (
     AnalysisOutput,
     OutlineOutput,
@@ -572,6 +573,11 @@ def review_and_repair_deck(
             review_callback(review.model_dump(mode="json"))
         if review.passed:
             return ReviewRun(current_slides, review, repair_rounds)
+
+        flagged = set(review.regenerate_slide_indices)
+        flagged.update(index for issue in review.issues for index in issue.slide_indices)
+        for index in flagged:
+            reject_checkpoint(current_slides[index])
 
         duplicate_repairs = _repair_reported_duplicate_bullets(current_slides, review)
         if duplicate_repairs is not None and repair_rounds < max_repair_rounds:

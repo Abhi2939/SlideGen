@@ -183,7 +183,7 @@ def build_checked(
             if len(images) != len(deck.slides):
                 raise QualityGateError("rendered_slide_count_mismatch")
             record["images"] = [f"{iteration}/{p.name}" for p in images]
-            reviewer = reviewer or GroqVisionReviewer(deadline=deadline)
+            reviewer = reviewer or GroqVisionReviewer(deadline=deadline, progress_callback=progress_callback)
             history["vision_model"] = getattr(reviewer, "model", "injected reviewer")
             for index, image in enumerate(images):
                 if progress_callback:

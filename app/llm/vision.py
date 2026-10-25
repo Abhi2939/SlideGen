@@ -34,10 +34,14 @@ class VisionGrade(BaseModel):
 
 
 class GroqVisionReviewer:
-    def __init__(self, *, settings=None, client=None, deadline=None):
+    def __init__(self, *, settings=None, client=None, deadline=None, progress_callback=None):
         settings = settings or Settings.from_env()
         self.generator = StructuredGenerator(client or create_llm_client(settings))
         self.generator.deadline = deadline
+        if progress_callback:
+            self.generator.on_provider_wait = lambda stage, seconds: progress_callback(
+                f"Waiting for AI rate limit (~{seconds}s)..." if seconds else "Reviewing slide design"
+            )
         self.model = os.getenv("SLIDEGEN_VISION_MODEL", "qwen/qwen3.8-27b")
 
     def __call__(self, png, *, theme, slide_index):

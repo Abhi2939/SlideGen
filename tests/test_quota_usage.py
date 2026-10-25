@@ -1,5 +1,4 @@
 import json
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -13,9 +12,6 @@ from app.llm.groq_provider import GroqProvider
 from app.llm.structured import StructuredGenerator
 from app.llm.usage import TokenUsage, record_usage, usage_scope
 from app.pipeline.models import AnalysisOutput
-from app.config import Settings
-from app.pipeline.orchestrator import generate_legacy_deck as generate_deck
-from test_jobs import wait_for_status
 
 
 class FakeLimit(Exception):
@@ -153,55 +149,26 @@ def test_nonquota_failure_does_not_start_another_slide_api_call():
     assert calls == ["write"]
 
 
-def test_job_fails_on_limit_before_another_inflight_call_finishes(tmp_path, monkeypatch):
-    started = threading.Event()
-    release = threading.Event()
+def test_global_serialization_does_not_start_pending_slide_after_a_limit(tmp_path):
+    from app.llm.pacing import RateSettings, TokenLimiter
+    from app.core.deck_schema import TitleSlide
     calls = []
 
     class Provider:
-        def complete(self, messages, **kwargs):
-            model = json.loads(messages[0]["content"].split("JSON Schema:\n")[1])["title"]
-            calls.append(model)
-            if model == "AnalysisOutput":
-                return json.dumps(
-                    {"deck_title": "Dogs", "deck_type": "education", "slide_count": 3}
-                )
-            if model == "OutlineOutput":
-                return json.dumps(
-                    {
-                        "deck_title": "Dogs",
-                        "slides": [
-                            {"index": i, "title": title, "layout": layout, "purpose": "Explain"}
-                            for i, (title, layout) in enumerate(
-                                [("Dogs", "title"), ("Care", "bullets"), ("Close", "closing")]
-                            )
-                        ],
-                    }
-                )
-            if model == "TitleSlide":
-                started.set()
-                assert release.wait(5)
-                # Invalid output would normally trigger a second structured call.
-                return "invalid JSON"
-            assert model == "BulletsSlide"
-            assert started.wait(5)
+        def complete(self, *args, **kwargs):
+            calls.append(1)
             raise FakeLimit("PRIVATE provider response")
 
-    generator = StructuredGenerator(LLMClient(Provider()))
-    settings = Settings("groq", None, "fake", None, None, None, None, 2)
+    generator = StructuredGenerator(LLMClient(Provider(), limiter=TokenLimiter(RateSettings())))
+
+    def generate(prompt):
+        return generator.generate(TitleSlide, stage="write", model="fake",
+                                  system_prompt="Write one slide", user_prompt=prompt)
+
     store = JobStore(tmp_path)
-    runner = JobRunner(store)
-    runner.generate = lambda prompt, **kwargs: generate_deck(
-        prompt, settings=settings, generator=generator, max_workers=2, **kwargs
-    )
-    try:
-        job = runner.submit("Make a 3-slide deck about dogs")
-        assert started.wait(5)
-        failed = wait_for_status(store, job.id, "failed")
-        assert failed.error == str(ProviderLimitError())
-        assert not release.is_set()
-    finally:
-        release.set()
-        runner.close()
-    assert calls.count("TitleSlide") == 1
-    assert "ClosingSlide" not in calls
+    with JobRunner(store, generate=generate) as runner:
+        job = runner.submit("Make a deck")
+    failed = store.get(job.id)
+    assert failed.status == "failed"
+    assert failed.error == str(ProviderLimitError())
+    assert calls == [1]

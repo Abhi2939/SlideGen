@@ -4,6 +4,7 @@ import re
 
 from app.pipeline.grounding import unsupported_claim_categories
 from app.llm.structured import StructuredGenerator
+from app.llm.checkpoints import reject_checkpoint
 from app.pipeline.models import AnalysisOutput, OutlineOutput, validate_outline_facts
 
 
@@ -499,6 +500,7 @@ def create_outline(
             _validate_requested_layouts(clean_prompt, grounded_outline)
             return grounded_outline
         except ValueError as exc:
+            reject_checkpoint(outline)
             last_error = exc
             correction = (
                 "\n\nCORRECTION REQUIRED: The prior outline failed a contract check: "
