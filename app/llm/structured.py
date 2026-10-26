@@ -73,6 +73,7 @@ class StructuredGenerator:
         max_tokens: int | None = None,
         response_schema: Mapping[str, Any] | None = None,
         image_urls: list[str] | None = None,
+        compact_corrections: bool = False,
     ) -> T:
         key = checkpoint_key(
             output_model,
@@ -113,6 +114,7 @@ class StructuredGenerator:
             },
         ]
         last_detail = "no response"
+        task_messages = list(messages)
         request_format = recovery_format(model, output_model.__name__, schema)
         schema_id = hashlib.sha256(
             json.dumps(schema, sort_keys=True, separators=(",", ":")).encode()
@@ -194,6 +196,23 @@ class StructuredGenerator:
                     raise StructuredOutputError(stage, attempt, last_detail) from exc
                 if attempt == self.max_attempts:
                     break
+                if compact_corrections:
+                    detail = (
+                        "; ".join(error["msg"] for error in exc.errors(include_input=False))[:700]
+                        if isinstance(exc, ValidationError)
+                        else last_detail
+                    )
+                    messages = [
+                        *task_messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                "Regenerate the complete JSON for the same brief. Correct these errors: "
+                                + detail
+                            ),
+                        },
+                    ]
+                    continue
                 messages = [
                     *messages,
                     {
@@ -229,6 +248,23 @@ class StructuredGenerator:
                 )
                 if attempt == self.max_attempts:
                     break
+                if compact_corrections:
+                    detail = (
+                        "; ".join(error["msg"] for error in exc.errors(include_input=False))[:700]
+                        if isinstance(exc, ValidationError)
+                        else last_detail
+                    )
+                    messages = [
+                        *task_messages,
+                        {
+                            "role": "user",
+                            "content": (
+                                "Regenerate the complete JSON for the same brief. Correct these errors: "
+                                + detail
+                            ),
+                        },
+                    ]
+                    continue
                 messages = [
                     *messages,
                     {"role": "assistant", "content": raw},

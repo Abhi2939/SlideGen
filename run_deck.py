@@ -24,10 +24,19 @@ def main() -> int:
         help="Output .pptx path (default: outputs/generated.pptx)",
     )
     parser.add_argument("--theme", default="default", help="Deck theme name")
+    parser.add_argument(
+        "--reviewed",
+        action="store_true",
+        help="Use the slower editorial and visual-review pipeline",
+    )
     args = parser.parse_args()
 
     try:
-        deck = generate_deck(" ".join(args.prompt), theme=args.theme)
+        deck = generate_deck(
+            " ".join(args.prompt),
+            theme=args.theme,
+            design="editorial" if args.reviewed else "draft",
+        )
     except DeckReviewError as error:
         print(f"Generation failed: {error}", file=sys.stderr)
         for issue in error.review.issues:
@@ -50,7 +59,11 @@ def main() -> int:
     except SlideWriteError as error:
         print(f"Generation failed: {error}", file=sys.stderr)
         return 1
-    if deck.design_version == "gamma-v1":
+    if deck.design_version == "draft-v1":
+        from app.qa.draft import build_draft
+
+        output = build_draft(deck, args.output)
+    elif deck.design_version == "gamma-v1":
         from app.qa.gate import build_checked
 
         output = build_checked(deck, args.output, source_prompt=" ".join(args.prompt))

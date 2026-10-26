@@ -28,6 +28,8 @@ services:
         value: "30"
       - key: SLIDEGEN_DESIGN_PIPELINE
         value: editorial
+      - key: SLIDEGEN_DELIVERY_MODE
+        value: draft
       - key: SLIDEGEN_VISION_MODEL
         value: qwen/qwen3.8-27b
       - key: SLIDEGEN_ASSETS_ENABLED
@@ -47,11 +49,11 @@ services:
       - key: SLIDEGEN_MAX_JOBS
         value: "1"
       - key: SLIDEGEN_MAX_ACTIVE_JOBS
-        value: "20"
+        value: "3"
       - key: SLIDEGEN_RETENTION_HOURS
         value: "24"
       - key: SLIDEGEN_JOB_TIMEOUT_SECONDS
-        value: "1800"
+        value: "600"
       - key: SLIDEGEN_LLM_PROVIDER
         value: groq
       - key: SLIDEGEN_STRUCTURED_ATTEMPTS

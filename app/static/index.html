@@ -61,6 +61,7 @@
     .primary svg { width: 17px; height: 17px; }
     .status { display: none; align-items: flex-start; gap: 12px; margin-top: 18px; padding: 14px 15px; color: #3e5547; background: #f1f6f0; border: 1px solid #e0eadf; border-radius: 11px; font-size: 13px; line-height: 1.5; }
     .status.visible { display: flex; }
+    #status-text, #review-status-text { min-width: 0; overflow-wrap: anywhere; }
     .status.error { color: var(--error); background: #fff4f1; border-color: #f1d8d1; }
     .status-icon { flex: 0 0 auto; width: 18px; height: 18px; margin-top: 1px; }
     .download { display: none; margin-top: 15px; }
@@ -89,13 +90,13 @@
         </span>
         <span>SlideGen</span>
       </div>
-      <div class="header-note">A thoughtful first draft, ready to share</div>
+      <div class="header-note">An editable first draft, ready to review</div>
     </header>
 
     <main>
       <div class="eyebrow">Presentation studio</div>
       <h1>Good ideas deserve a great deck.</h1>
-      <p class="intro">Tell us what you’re presenting. SlideGen shapes your brief into a clear, reviewed PowerPoint you can download and make your own.</p>
+      <p class="intro">Tell us what you’re presenting. Get an editable PowerPoint draft, then choose whether to run a separate design review.</p>
 
       <section class="studio" aria-label="Create a presentation">
         <form id="job-form">
@@ -126,8 +127,14 @@
           <svg class="status-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
           <span id="status-text"></span>
         </div>
-        <div class="download" id="download"><a id="download-link" href="#">Download PowerPoint <span aria-hidden="true">↓</span></a></div>
-        <p class="footnote">Generation time varies with deck size and provider availability. Keep this page open while your deck is being created.</p>
+        <div class="download" id="download"><a id="download-link" href="#">Download PowerPoint draft <span aria-hidden="true">↓</span></a></div>
+        <div id="review-controls" hidden style="margin-top:15px">
+          <button class="chip" type="button" id="review-design">Optional: review slide design</button>
+          <p class="footnote">You can download your draft while design review runs.</p>
+        </div>
+        <div class="status" id="review-status" role="status" aria-live="polite"><span id="review-status-text"></span></div>
+        <ol id="review-findings" style="font-size:13px;line-height:1.6"></ol>
+        <p class="footnote">Drafts include basic content and file checks. Review the details before sharing. An active draft reconnects after refresh.</p>
       </section>
     </main>
 
@@ -145,9 +152,16 @@
     const downloadBox = document.getElementById('download');
     const downloadLink = document.getElementById('download-link');
     const charCount = document.getElementById('char-count');
+    const reviewControls = document.getElementById('review-controls');
+    const reviewButton = document.getElementById('review-design');
+    const reviewStatus = document.getElementById('review-status');
+    const reviewText = document.getElementById('review-status-text');
+    const reviewFindings = document.getElementById('review-findings');
     const pollIntervalMs = 2000;
     const activeJobKey = 'slidegen.activeJob';
+    const completedJobKey = 'slidegen.completedJob';
     let activeJobId = null;
+    let completedJobId = null;
 
     function rememberJob(jobId) {
       activeJobId = jobId;
@@ -210,7 +224,10 @@
         await new Promise((resolve) => setTimeout(resolve, delayMs));
         const response = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
         if (!response.ok) {
-          if (response.status === 404) rememberJob(null);
+          if (response.status === 404) {
+            rememberJob(null);
+            try { if (sessionStorage.getItem(completedJobKey) === jobId) sessionStorage.removeItem(completedJobKey); } catch (_) {}
+          }
           throw new Error(await responseDetail(response));
         }
         const job = response.data;
@@ -221,11 +238,16 @@
         delayMs = state === lastState ? Math.min(3000, delayMs + 500) : pollIntervalMs;
         lastState = state;
         if (job.status === 'done') {
+          completedJobId = jobId;
+          try { sessionStorage.setItem(completedJobKey, jobId); } catch (_) {}
           downloadLink.href = `/api/jobs/${encodeURIComponent(jobId)}/download`;
           downloadBox.classList.add('visible');
+          reviewControls.hidden = false;
+          reviewButton.disabled = false;
           rememberJob(null);
-          showStatus('Your presentation is ready to download.');
+          showStatus(`Your PowerPoint draft is ready. Review the details before sharing. Job reference: ${jobId}.`);
           setBusy(false);
+          restoreReview(jobId);
           return;
         }
         if (job.status === 'failed') {
@@ -250,6 +272,61 @@
       showStatus(message, true);
       setBusy(false);
     }
+
+    function showReview(report) {
+      reviewStatus.classList.add('visible');
+      reviewStatus.classList.toggle('error', ['failed', 'interrupted'].includes(report.status));
+      reviewText.textContent = report.message || 'Design review is running. Your draft remains available.';
+      const running = ['queued', 'running'].includes(report.status);
+      reviewButton.disabled = running;
+      reviewButton.textContent = running ? 'Reviewing design…' : 'Optional: review slide design';
+      if (report.status === 'completed') {
+        reviewButton.disabled = true;
+        reviewButton.textContent = 'Design review completed';
+        reviewFindings.replaceChildren();
+        (report.grades || []).forEach((grade, index) => {
+          const line = document.createElement('li');
+          const fixes = (grade.fixes || []).map(fix => fix.detail).join(' ');
+          line.textContent = `Slide ${index + 1}: ${grade.score}/10.${fixes ? ' ' + fixes : ''}`;
+          reviewFindings.appendChild(line);
+        });
+      }
+    }
+
+    async function restoreReview(jobId) {
+      try {
+        while (completedJobId === jobId) {
+          const response = await request(`/api/jobs/${encodeURIComponent(jobId)}/review`);
+          if (completedJobId !== jobId) return;
+          if (!response.ok) {
+            if (response.status === 409) { reviewControls.hidden = true; return; }
+            throw new Error(await responseDetail(response));
+          }
+          const report = response.data;
+          if (report.status === 'not_requested') return;
+          showReview(report);
+          if (!['queued', 'running'].includes(report.status)) return;
+          await new Promise(resolve => setTimeout(resolve, 3000));
+        }
+      } catch (_) {
+        if (completedJobId === jobId) showReview({ status: 'interrupted', message: 'Design review status could not be loaded. Your draft is still available.' });
+      }
+    }
+
+    reviewButton.addEventListener('click', async () => {
+      const jobId = completedJobId;
+      if (!jobId) return;
+      reviewButton.disabled = true;
+      try {
+        const response = await request(`/api/jobs/${encodeURIComponent(jobId)}/review`, { method: 'POST' });
+        if (!response.ok) throw new Error(await responseDetail(response));
+        if (completedJobId !== jobId) return;
+        showReview(response.data);
+        await restoreReview(jobId);
+      } catch (_) {
+        if (completedJobId === jobId) showReview({ status: 'failed', message: 'Design review could not start. Your draft is still available.' });
+      }
+    });
 
     downloadLink.addEventListener('click', async (event) => {
       event.preventDefault();
@@ -276,6 +353,10 @@
       }
       statusBox.classList.remove('visible', 'error');
       downloadBox.classList.remove('visible');
+      completedJobId = null;
+      reviewControls.hidden = true;
+      reviewStatus.classList.remove('visible', 'error');
+      reviewFindings.replaceChildren();
       setBusy(true);
       showStatus('Starting your presentation… Generation time depends on deck size and provider availability.');
       try {
@@ -296,7 +377,7 @@
     });
 
     try {
-      const savedJob = sessionStorage.getItem(activeJobKey);
+      const savedJob = sessionStorage.getItem(activeJobKey) || sessionStorage.getItem(completedJobKey);
       if (/^[a-f0-9]{32}$/.test(savedJob || '')) {
         rememberJob(savedJob);
         setBusy(true);

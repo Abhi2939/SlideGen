@@ -1,14 +1,40 @@
 # SlideGen
 
-SlideGen turns a natural-language prompt into a structured presentation, reviews the generated content, and renders a downloadable PowerPoint (`.pptx`) file. You can use the command-line interface or the FastAPI web app.
+SlideGen turns a brief into an editable PowerPoint **draft**. The web app and CLI now use a single content request, local source checks, and deterministic templates. AI visual scoring does not block a download.
+
+## Default draft delivery
+
+- One request generates the content for the whole deck, with at most two structured-output attempts. Drafts default to six slides and support explicit counts from three to ten.
+- Company facts are inserted from verified excerpts of the brief rather than model-written marketing claims. Supplied numbers and percentages are checked. General-topic copy still needs a human accuracy review.
+- Export checks text fit, fonts, contrast, bounds and the actual saved PowerPoint. These checks do not require photo downloads, LibreOffice or an AI vision model.
+- The file is labelled **Draft** and becomes downloadable when those checks pass. It has not received AI visual approval.
+- **Optional: review slide design** starts a separate, single-pass review after the draft is available. Its score, failure or timeout cannot remove the draft or occupy the generation worker. It requires LibreOffice and the configured vision model.
+- Draft jobs have a maximum ten-minute lifetime including queue time, even across deploys. The default web mode accepts at most three active jobs. Provider errors fail clearly instead of leaving an endless spinner.
+
+`SLIDEGEN_DELIVERY_MODE=draft` is the web default, including installations that still have the older `SLIDEGEN_DESIGN_PIPELINE=editorial` setting. Set delivery mode to `reviewed` only to opt back into the slower editorial pipeline and blocking visual gate below. The CLI defaults to drafts; `--reviewed` explicitly requests that advanced path. Programmatic draft generation is `generate_deck(prompt, design="draft")`.
+
+Draft endpoints:
+
+| Endpoint | Behavior |
+| --- | --- |
+| `POST /api/jobs` | Submit a draft brief |
+| `GET /api/jobs/{id}` | Read queue position, progress or a terminal result |
+| `GET /api/jobs/{id}/download` | Download the completed editable draft |
+| `POST /api/jobs/{id}/review` | Request an optional design review without changing job status |
+| `GET /api/jobs/{id}/review` | Read review progress, scores and suggestions |
+| `GET /debug/{id}` | Read the deterministic file-check report |
+
+The browser retains the active job and latest completed draft for the current browser session. Refresh reconnects to the same job. Network requests, including response-body reads, are bounded to 30 seconds. `/healthz` reports the deployed revision and delivery mode in response headers.
+
+Source checks verify supplied excerpts and catch common unsupported numeric, contact and commercial claims; they are not independent fact checking. Review draft details before sharing. No draft or low-scoring review is represented as an approved client presentation.
 
 ## Editorial generator
 
-The default pipeline now plans an 8–10 slide story, chooses a topic theme, and writes each slide as structured JSON without coordinates. Geometry belongs to the renderer. Six curated themes cover beauty, fintech, health, edtech, climate and bold/dark moods. Beauty uses cream, rose and plum. Body colors meet 4.5:1 contrast on the theme backgrounds.
+The optional editorial pipeline plans an 8–10 slide story, chooses a topic theme, and writes each slide as structured JSON without coordinates. Geometry belongs to the renderer. Six curated themes cover beauty, fintech, health, edtech, climate and bold/dark moods. Beauty uses cream, rose and plum. Body colors meet 4.5:1 contrast on the theme backgrounds.
 
 The editable renderer uses title/body placeholders, a themed master, a 13.333 × 7.5 inch canvas, 0.6 inch safe margins, and a 12-column grid. It supports cover, split image, three/four cards, straight horizontal timeline, big stat, quote, comparison, process, 2×2 grid and closing CTA. Text starts at 54/36/22/18/14 pt, shrinks by at most 10%, and otherwise requires reflow or splitting. Unresolved icons are omitted. There are no decorative corner icons. Credits, internal notes and illustrative-number disclosures stay in speaker notes, with visible credit where an API requires it.
 
-Before an editorial file becomes downloadable, `app.qa.gate.build_checked` exports and lints the actual PPTX, renders it through LibreOffice/PyMuPDF, and sends every slide image to a Groq vision model. It requires zero lint errors and every visual score ≥8, repairs and re-renders for at most three attempts, and fails closed on exhausted checks or unavailable review. Exactly unchanged PNGs that previously passed can reuse their approved score, with SHA-256 evidence in the report. No unavailable provider is replaced with a fabricated score.
+In explicitly selected **reviewed delivery mode**, `app.qa.gate.build_checked` exports and lints the actual PPTX, renders it through LibreOffice/PyMuPDF, and sends every slide image to a Groq vision model. It requires zero lint errors and every visual score ≥8, repairs and re-renders for at most three attempts, and fails closed on exhausted checks or unavailable review. Exactly unchanged PNGs that previously passed can reuse their approved score, with SHA-256 evidence in the report. This advanced gate is not used for default draft delivery.
 
 `GET /debug/{deck_id}` returns the report and PNG links for a known job, including unsuccessful QA attempts. `GET /debug/{deck_id}/{iteration}/slide-01.png` serves an individual preview. Reports and previews live beside the output in `<deck_id>.qa/` and expire with the job's output data.
 

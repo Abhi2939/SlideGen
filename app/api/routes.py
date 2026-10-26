@@ -94,6 +94,9 @@ def _client_address(request: Request) -> str:
 @router.get("/healthz")
 def healthz(response: Response) -> dict[str, bool]:
     response.headers["Cache-Control"] = "no-store"
+    delivery = os.getenv("SLIDEGEN_DELIVERY_MODE", "draft")
+    if delivery in {"draft", "reviewed"}:
+        response.headers["X-SlideGen-Delivery"] = delivery
     revision = os.getenv("RENDER_GIT_COMMIT", "")
     if re.fullmatch(r"(?:[0-9a-f]{40}|[0-9a-f]{64})", revision, re.I):
         response.headers["X-SlideGen-Revision"] = revision.lower()
@@ -166,3 +169,26 @@ def download_job(
         media_type=PPTX_MEDIA_TYPE,
         filename=f"{job.id}.pptx",
     )
+
+
+@router.get("/api/jobs/{job_id}/review")
+def get_design_review(job_id: str, request: Request):
+    try:
+        report = request.app.state.runner.review_status(job_id)
+    except KeyError:
+        raise HTTPException(404, "Job not found.") from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None
+    if "images" in report:
+        report["images"] = [f"/debug/{job_id}/{image}" for image in report["images"]]
+    return report
+
+
+@router.post("/api/jobs/{job_id}/review", status_code=202)
+def request_design_review(job_id: str, request: Request):
+    try:
+        return request.app.state.runner.request_review(job_id)
+    except KeyError:
+        raise HTTPException(404, "Job not found.") from None
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from None

@@ -36,6 +36,8 @@ def create_app(
     active_limit = max_active_jobs
     if active_limit is None:
         active_limit = int(os.getenv("SLIDEGEN_MAX_ACTIVE_JOBS", "20"))
+        if os.getenv("SLIDEGEN_DELIVERY_MODE", "draft") == "draft":
+            active_limit = min(active_limit, 3)
     if active_limit < 1:
         raise ValueError("SLIDEGEN_MAX_ACTIVE_JOBS must be at least 1")
     trust_header_value = os.getenv("SLIDEGEN_TRUST_CLOUDFLARE_IP_HEADER", "false").strip().lower()

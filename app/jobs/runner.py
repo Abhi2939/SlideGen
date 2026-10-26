@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 import time
-from threading import Timer
+from threading import Timer, Lock
+from datetime import datetime, timezone
 from typing import Callable
 
 from app.core.deck_schema import Deck
@@ -35,15 +37,21 @@ class JobRunner:
         generate: Callable[[str], Deck] | None = None,
         build: Callable[[Deck, str | Path], Path] = build_deck,
         max_runtime_seconds: float | None = None,
+        delivery_mode: str | None = None,
     ) -> None:
         configured_workers = max_workers
         if configured_workers is None:
             configured_workers = int(os.getenv("SLIDEGEN_MAX_JOBS", "1"))
         if configured_workers < 1:
             raise ValueError("SLIDEGEN_MAX_JOBS must be at least 1")
+        self.delivery_mode = delivery_mode or os.getenv("SLIDEGEN_DELIVERY_MODE", "draft")
+        if self.delivery_mode not in {"draft", "reviewed"}:
+            raise ValueError("SLIDEGEN_DELIVERY_MODE must be draft or reviewed")
         configured_runtime = max_runtime_seconds
         if configured_runtime is None:
             configured_runtime = float(os.getenv("SLIDEGEN_JOB_TIMEOUT_SECONDS", "1800"))
+            if self.delivery_mode == "draft":
+                configured_runtime = min(configured_runtime, 600)
         if configured_runtime <= 0:
             raise ValueError("SLIDEGEN_JOB_TIMEOUT_SECONDS must be greater than zero")
         self.store = store
@@ -55,6 +63,11 @@ class JobRunner:
             max_workers=configured_workers,
             thread_name_prefix="slidegen-job",
         )
+        self._review_executor = ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="slidegen-review"
+        )
+        self._review_lock = Lock()
+        self._reviews = set()
         for job_id in store.queued_ids():
             self._executor.submit(self._run, job_id)
 
@@ -70,7 +83,14 @@ class JobRunner:
             log.error("job %s disappeared before execution", job_id)
             return
         output_path = self.store.output_dir / f"{job_id}.pptx"
-        deadline = time.monotonic() + self.max_runtime_seconds
+        # A deploy must not restart the time budget of an old queued job.
+        age = max(0, (datetime.now(timezone.utc) - job.created_at).total_seconds())
+        remaining = (
+            self.max_runtime_seconds - age
+            if self.delivery_mode == "draft"
+            else self.max_runtime_seconds
+        )
+        deadline = time.monotonic() + remaining
         failure_stage = "generate"
 
         def report_stage(stage: str) -> None:
@@ -90,16 +110,19 @@ class JobRunner:
             except Exception:
                 log.exception("could not time out job %s", job_id)
 
-        timeout_timer = Timer(self.max_runtime_seconds, time_out_job)
+        timeout_timer = Timer(max(0, remaining), time_out_job)
         timeout_timer.daemon = True
         token_counts = TokenUsage().snapshot()
         try:
             self.store.mark_running(job_id)
+            if remaining <= 0:
+                raise TimeoutError("job exceeded its queue or generation time limit")
             timeout_timer.start()
             if self._uses_default_generator:
                 with checkpoint_scope(self.store, job_id):
                     deck = self.generate(
                         job.prompt,
+                        design="draft" if self.delivery_mode == "draft" else None,
                         deadline=deadline,
                         progress_callback=report_stage,
                         usage_callback=token_counts.update,
@@ -111,7 +134,11 @@ class JobRunner:
                 raise TimeoutError("deck generation exceeded its time limit")
             report_stage("Rendering PowerPoint")
             failure_stage = "render"
-            if deck.design_version == "gamma-v1":
+            if deck.design_version == "draft-v1":
+                from app.qa.draft import build_draft
+
+                build_draft(deck, output_path, deadline=deadline, progress_callback=report_stage)
+            elif deck.design_version == "gamma-v1" and self.delivery_mode == "reviewed":
                 from app.qa.gate import build_checked
 
                 build_checked(
@@ -178,6 +205,69 @@ class JobRunner:
 
     def close(self, *, wait: bool = True) -> None:
         self._executor.shutdown(wait=wait, cancel_futures=False)
+        self._review_executor.shutdown(wait=wait, cancel_futures=True)
+
+    def review_status(self, job_id):
+        job = self.store.get(job_id)
+        if job is None:
+            raise KeyError(job_id)
+        if job.status != "done" or job.output_path is None:
+            raise ValueError("The PowerPoint draft is not ready yet.")
+        folder = self.store.output_dir / (job_id + ".qa")
+        if not (folder / "deck.json").is_file():
+            raise ValueError("Optional design review is unavailable for this older presentation.")
+        path = folder / "review.json"
+        report = (
+            json.loads(path.read_text(encoding="utf-8"))
+            if path.is_file()
+            else {"status": "not_requested"}
+        )
+        if report["status"] in {"running", "queued"} and job_id not in self._reviews:
+            report = {
+                "status": "interrupted",
+                "message": "Review was interrupted. Your draft is still available.",
+            }
+        return report
+
+    def request_review(self, job_id):
+        from app.qa.draft import write_json
+
+        with self._review_lock:
+            report = self.review_status(job_id)
+            if job_id in self._reviews or report["status"] == "completed":
+                return report
+            if self._reviews:
+                raise ValueError(
+                    "Another design review is running. Your draft is available; try again later."
+                )
+            report = {
+                "status": "queued",
+                "message": "Optional design review queued. Your draft remains available.",
+            }
+            write_json(self.store.output_dir / (job_id + ".qa") / "review.json", report)
+            self._reviews.add(job_id)
+            self._review_executor.submit(self._review, job_id)
+            return report
+
+    def _review(self, job_id):
+        from app.qa.draft import review_draft, write_json
+
+        try:
+            job = self.store.get(job_id)
+            if job and job.output_path:
+                review_draft(job.output_path, deadline=time.monotonic() + 300)
+        except Exception as exc:
+            log.warning("optional design review failed: job=%s type=%s", job_id, type(exc).__name__)
+            write_json(
+                self.store.output_dir / (job_id + ".qa") / "review.json",
+                {
+                    "status": "failed",
+                    "message": "Design review could not finish. Your draft is still available.",
+                },
+            )
+        finally:
+            with self._review_lock:
+                self._reviews.discard(job_id)
 
     def __enter__(self) -> "JobRunner":
         return self

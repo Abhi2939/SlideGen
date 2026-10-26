@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from app.core.errors import (
     DeckReviewError,
+    DraftContentError,
     LLMProviderError,
     OutlineSourceError,
     ProviderLimitError,
@@ -68,6 +69,9 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
             failure.message = (
                 f"The AI could not match the required layout for slide {exc.slide_index + 1}."
             )
+    elif isinstance(exc, DraftContentError):
+        failure.code = "draft_content_invalid"
+        failure.message = "The AI could not match the brief within the draft's content limits. Try rephrasing the brief or requesting more slides."
     elif isinstance(exc, StructuredOutputError):
         failure.code = "invalid_ai_response"
         failure.message = "The AI returned an unreadable or incomplete response."
@@ -86,6 +90,13 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
         failure.code = "source_review_failed"
         failure.stage = "review"
         failure.message = "The presentation did not pass its final content review."
+    elif getattr(exc, "reason", None) in {
+        "draft_file_validation_failed",
+        "draft_text_does_not_fit",
+    }:
+        failure.code = "draft_export_failed"
+        failure.stage = "render"
+        failure.message = "The draft could not be exported with readable text. Try a shorter brief or more slides."
     elif stage == "render":
         failure.code = "render_or_visual_check_failed"
         failure.message = (

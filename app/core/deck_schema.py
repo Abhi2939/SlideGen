@@ -74,6 +74,13 @@ class BulletsSlide(_SlideBase):
     bullets: list[Bullet] = Field(min_length=2, max_length=6)
 
 
+class DraftSlide(_SlideBase):
+    layout: Literal["draft_content"] = "draft_content"
+    points: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(
+        min_length=1, max_length=4
+    )
+
+
 class TwoColumnSlide(_SlideBase):
     layout: Literal["two_column"]
     left: Column
@@ -269,6 +276,7 @@ Slide = Annotated[
         TitleSlide,
         SectionSlide,
         BulletsSlide,
+        DraftSlide,
         TwoColumnSlide,
         StatSlide,
         ProcessSlide,
@@ -312,7 +320,7 @@ class Deck(_Model):
     theme: str = "default"
     slides: list[Slide] = Field(min_length=3, max_length=30)
     assets: list[DeckAsset] = Field(default_factory=list)
-    design_version: Literal["gamma-v1"] | None = None
+    design_version: Literal["gamma-v1", "draft-v1"] | None = None
 
     @model_validator(mode="after")
     def _structure(self):

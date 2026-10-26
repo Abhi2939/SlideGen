@@ -68,6 +68,15 @@ class OutlineSourceError(SlideGenError, ValueError):
         super().__init__("outline facts must be verbatim source evidence")
 
 
+class DraftContentError(StructuredOutputError):
+    """A complete draft remained invalid after its bounded correction."""
+
+    reason = "draft_content_invalid"
+
+    def __init__(self, attempts):
+        super().__init__("write", attempts, "draft content failed local source or length checks")
+
+
 class SlideWriteError(SlideGenError):
     """A single planned slide could not be generated or validated."""
 

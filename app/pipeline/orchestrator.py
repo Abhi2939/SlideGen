@@ -162,10 +162,14 @@ def generate_deck(prompt: str, *, design: str | None = None, **kwargs) -> Deck:
     import os
 
     selected = design or os.getenv("SLIDEGEN_DESIGN_PIPELINE", "editorial")
+    if selected == "draft":
+        from app.pipeline.draft import generate_draft_deck
+
+        return generate_draft_deck(prompt, **kwargs)
     if selected == "legacy":
         return generate_legacy_deck(prompt, **kwargs)
     if selected != "editorial":
-        raise ValueError("SLIDEGEN_DESIGN_PIPELINE must be editorial or legacy")
+        raise ValueError("SLIDEGEN_DESIGN_PIPELINE must be draft, editorial or legacy")
     from app.pipeline.editorial import generate_editorial_deck
 
     return generate_editorial_deck(prompt, **kwargs)

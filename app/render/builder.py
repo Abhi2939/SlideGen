@@ -59,7 +59,11 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
         count = len(prs.slides)
         try:
             with asset_scope(assets):
-                if data.layout == "editorial":
+                if deck.design_version == "draft-v1":
+                    from app.render.draft import render
+
+                    slide = render(prs, data, theme, brand=deck.title, number=index + 1)
+                elif data.layout == "editorial":
                     from app.render.editorial import render
 
                     slide = render(prs, data, theme, brand=deck.title, number=index + 1)
