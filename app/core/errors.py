@@ -106,6 +106,9 @@ class SlideWriteError(SlideGenError):
 class DeckReviewError(SlideGenError):
     """A deck still has review findings after all repair rounds."""
 
+    stage = "review"
+    reason = "source_review_failed"
+
     def __init__(self, review, repair_rounds: int):
         self.review = review
         self.repair_rounds = repair_rounds

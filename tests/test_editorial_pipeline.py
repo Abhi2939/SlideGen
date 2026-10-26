@@ -5,7 +5,7 @@ import pytest
 from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
-from app.core.errors import OutlineSourceError, ProviderLimitError, SlideWriteError
+from app.core.errors import DeckReviewError, OutlineSourceError, ProviderLimitError, SlideWriteError
 from app.pipeline.editorial import (
     clean_copy,
     ground_roadmap,
@@ -418,7 +418,7 @@ def test_source_fallback_does_not_bypass_final_content_review(monkeypatch):
             return super().generate(output_model, stage=stage, **kwargs)
 
     fake = RejectedReviewGenerator()
-    with pytest.raises(ValueError, match="final source review"):
+    with pytest.raises(DeckReviewError):
         generate_deck(PROMPT, generator=fake, max_repair_rounds=0)
     assert len(fake.launch_requests) == 2
     assert fake.stages[-1] == "review"

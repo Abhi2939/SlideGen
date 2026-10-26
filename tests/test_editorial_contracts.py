@@ -5,7 +5,12 @@ from pydantic import ValidationError
 from pptx import Presentation
 
 from app.core.deck_schema import Deck, StorySlide
-from app.core.errors import LLMProviderError, SlideWriteError, StructuredOutputError
+from app.core.errors import (
+    DeckReviewError,
+    LLMProviderError,
+    SlideWriteError,
+    StructuredOutputError,
+)
 from app.llm.client import LLMClient
 from app.llm.schema import recovery_format
 from app.llm.structured import StructuredGenerator
@@ -18,6 +23,7 @@ from app.pipeline.editorial import (
     planned_review_model,
     source_copy_fallback,
     validate_copy,
+    visible_copy,
 )
 from app.pipeline.orchestrator import generate_deck
 from test_editorial_pipeline import FIXTURE, PROMPT, StoryGenerator
@@ -234,7 +240,155 @@ def test_duplicate_source_workflow_merges_to_eight_slides_and_requires_another_r
 def test_merging_never_skips_a_failed_final_review_or_drops_below_eight(monkeypatch):
     monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
     fake = DuplicateLaunchReview(always_reject=True)
-    with pytest.raises(ValueError, match="final source review"):
+    with pytest.raises(DeckReviewError) as caught:
         generate_deck(PROMPT, generator=fake, max_repair_rounds=0)
+    assert caught.value.repair_rounds == 0
+    assert caught.value.review.issues[0].slide_index == 4
     assert len(fake.reviews) == 2
     assert len(fake.reviews[-1]["slides"]) == 8
+
+
+class MultipleFindingsReview(StoryGenerator):
+    def __init__(self, *, always_reject=False, no_findings=False, missing_fact=False):
+        super().__init__()
+        self.always_reject = always_reject
+        self.no_findings = no_findings
+        self.missing_fact = missing_fact
+        self.reviews = []
+        self.repairs = []
+
+    def generate(self, output_model, *, stage, **kwargs):
+        if stage == "review":
+            request = json.loads(kwargs["user_prompt"])
+            self.stages.append(stage)
+            self.reviews.append(request)
+            item = request["slides"][1]["items"][0]
+            passed = (
+                item["title"] == "Individual style"
+                and item["description"] == "Foundation, lipstick, and skincare."
+                and not self.always_reject
+            )
+            return output_model(
+                passed=passed,
+                issues=[]
+                if passed or self.no_findings
+                else [
+                    {"slide_index": 1, "fix": "PRIVATE_FINDING: Revise the heading."},
+                    {"slide_index": 1, "fix": "PRIVATE_FINDING: Revise the description."},
+                ],
+                missing_fact_ids=[0] if self.missing_fact and not passed else [],
+            )
+        if stage == "repair":
+            request = json.loads(kwargs["user_prompt"])
+            self.stages.append(stage)
+            self.repairs.append(request)
+            slide = StorySlide.model_validate(request["failing_slide"])
+            if "Revise the heading." in request["feedback"]:
+                slide.items[0].title = "Individual style"
+            if "Revise the description." in request["feedback"]:
+                slide.items[0].description = "Foundation, lipstick, and skincare."
+            return slide
+        return super().generate(output_model, stage=stage, **kwargs)
+
+
+def test_every_finding_for_a_slide_reaches_one_repair_and_passes_review(monkeypatch, caplog):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    caplog.set_level("INFO", logger="app.pipeline.editorial")
+    fake = MultipleFindingsReview(missing_fact=True)
+    deck = generate_deck(PROMPT, generator=fake)
+    assert len(fake.reviews) == 2
+    assert len(fake.repairs) == 2  # One issue slide and one assigned the missing fact.
+    repair = next(r for r in fake.repairs if "Revise the heading." in r["feedback"])
+    assert "Revise the description." in repair["feedback"]
+    assert any("Include visibly: foundation" in r["feedback"] for r in fake.repairs)
+    assert deck.slides[1].items[0].title == "Individual style"
+    assert deck.slides[1].items[0].description == "Foundation, lipstick, and skincare."
+    for index in range(2, len(deck.slides)):
+        assert {"slide_index": index, **visible_copy(deck.slides[index])} == (
+            fake.reviews[0]["slides"][index]
+        )
+    assert "issues=2 slide_indices=[1] missing_fact_ids=[0] repair_rounds=0" in caplog.text
+    assert "PRIVATE_FINDING" not in caplog.text
+
+
+def test_exhausted_editorial_review_preserves_findings_and_bounded_repairs(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = MultipleFindingsReview(always_reject=True)
+    with pytest.raises(DeckReviewError) as caught:
+        generate_deck(PROMPT, generator=fake, max_repair_rounds=2)
+    assert len(fake.reviews) == 3
+    assert len(fake.repairs) == 2
+    assert caught.value.repair_rounds == 2
+    assert caught.value.stage == "review"
+    assert caught.value.reason == "source_review_failed"
+    assert [issue.slide_index for issue in caught.value.review.issues] == [1, 1]
+
+
+def test_failed_editorial_review_without_findings_retains_the_review(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fake = MultipleFindingsReview(no_findings=True)
+    with pytest.raises(DeckReviewError) as caught:
+        generate_deck(PROMPT, generator=fake)
+    assert caught.value.review.passed is False
+    assert caught.value.review.issues == []
+    assert caught.value.repair_rounds == 0
+    assert fake.repairs == []
+
+
+@pytest.mark.parametrize("always_reject", [False, True])
+def test_multiple_findings_after_merge_use_current_indices_and_bounded_repairs(
+    monkeypatch, always_reject
+):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+
+    class FindingsAfterMerge(DuplicateLaunchReview):
+        def __init__(self):
+            super().__init__()
+            self.repairs = []
+
+        def generate(self, output_model, *, stage, **kwargs):
+            request = json.loads(kwargs["user_prompt"]) if stage != "outline" else None
+            if stage == "review" and len(request["slides"]) == 8:
+                self.reviews.append(request)
+                item = request["slides"][6]["items"][0]
+                passed = (
+                    item["title"] == "Measure interest"
+                    and item["description"] == "Compare proposed signals over time."
+                    and not always_reject
+                )
+                return output_model(
+                    passed=passed,
+                    issues=[]
+                    if passed
+                    else [
+                        {"slide_index": 6, "fix": "Revise the heading."},
+                        {"slide_index": 6, "fix": "Revise the description."},
+                    ],
+                )
+            if stage == "repair":
+                self.repairs.append(request)
+                slide = StorySlide.model_validate(request["failing_slide"])
+                if "Revise the heading." in request["feedback"]:
+                    slide.items[0].title = "Measure interest"
+                if "Revise the description." in request["feedback"]:
+                    slide.items[0].description = "Compare proposed signals over time."
+                return slide
+            return super().generate(output_model, stage=stage, **kwargs)
+
+    fake = FindingsAfterMerge()
+    if always_reject:
+        with pytest.raises(DeckReviewError) as caught:
+            generate_deck(PROMPT, generator=fake, max_repair_rounds=2)
+        assert caught.value.repair_rounds == 2
+        assert [issue.slide_index for issue in caught.value.review.issues] == [6, 6]
+        assert len(fake.repairs) == 2
+    else:
+        deck = generate_deck(PROMPT, generator=fake, max_repair_rounds=2)
+        assert len(deck.slides) == 8
+        assert deck.slides[6].items[0].title == "Measure interest"
+        assert len(fake.repairs) == 1
+    assert [len(review["slides"]) for review in fake.reviews] == [9] + [8] * (len(fake.repairs) + 1)
+    for repair in fake.repairs:
+        assert "Revise the heading." in repair["feedback"]
+        assert "Revise the description." in repair["feedback"]
+        assert repair["failing_slide"]["archetype"] == fake.reviews[1]["slides"][6]["archetype"]

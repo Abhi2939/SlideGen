@@ -31,6 +31,9 @@ def main() -> int:
     except DeckReviewError as error:
         print(f"Generation failed: {error}", file=sys.stderr)
         for issue in error.review.issues:
+            if hasattr(issue, "slide_index"):
+                print(f"- Slide {issue.slide_index + 1}: {issue.fix}", file=sys.stderr)
+                continue
             slides = ", ".join(str(index + 1) for index in issue.slide_indices)
             location = f" on slide(s) {slides}" if slides else ""
             print(

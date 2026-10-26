@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field, create_model, model_validator
 from app.assets.resolve import prepare_assets
 from app.config import Settings
 from app.core.deck_schema import Archetype, Deck, StoryItem, StorySlide
-from app.core.errors import OutlineSourceError, SlideWriteError, StructuredOutputError
+from app.core.errors import (
+    DeckReviewError,
+    OutlineSourceError,
+    SlideWriteError,
+    StructuredOutputError,
+)
 from app.llm.factory import create_llm_client
 from app.llm.checkpoints import reject_checkpoint
 from app.llm.structured import StructuredGenerator
@@ -825,6 +830,15 @@ def generate_editorial_deck(
                 raise ValueError("review returned invalid references")
             if review_callback:
                 review_callback(review.model_dump())
+            log.info(
+                "source review: passed=%s issues=%d slide_indices=%s "
+                "missing_fact_ids=%s repair_rounds=%d",
+                review.passed,
+                len(review.issues),
+                sorted({issue.slide_index for issue in review.issues}),
+                review.missing_fact_ids,
+                repair_rounds,
+            )
             if review.passed and not review.issues and not review.missing_fact_ids:
                 break
             merged = merge_reviewed_source_duplicate(outline, slides, review, prompt)
@@ -832,7 +846,11 @@ def generate_editorial_deck(
                 outline, slides = merged
                 announce("Combining repeated source content")
                 continue
-            fixes = {i.slide_index: i.fix for i in review.issues}
+            fixes = {}
+            for issue in review.issues:
+                fixes[issue.slide_index] = (
+                    fixes.get(issue.slide_index, "") + "\n" + issue.fix
+                ).strip()
             for fact_id in review.missing_fact_ids:
                 index = next(
                     (i for i, p in enumerate(outline.slides) if fact_id in p.source_fact_ids), None
@@ -843,9 +861,9 @@ def generate_editorial_deck(
             for index in fixes:
                 reject_checkpoint(slides[index])
             if repair_rounds >= max_repair_rounds:
-                raise ValueError("story failed final source review")
+                raise DeckReviewError(review, repair_rounds)
             if not fixes:
-                raise ValueError("review failed without actionable findings")
+                raise DeckReviewError(review, repair_rounds)
             for index, feedback in fixes.items():
                 slides[index] = write(outline.slides[index], index, feedback, "repair")
             repair_rounds += 1

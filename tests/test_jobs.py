@@ -343,7 +343,8 @@ def test_job_timeout_fails_with_clean_user_message(tmp_path):
         runner.close()
 
 
-def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, caplog):
+@pytest.mark.parametrize("editorial", [False, True])
+def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, caplog, editorial):
     store = JobStore(tmp_path)
     review = ReviewOutput(
         passed=False,
@@ -357,6 +358,13 @@ def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, cap
         ],
         regenerate_slide_indices=[1],
     )
+    if editorial:
+        from app.pipeline.editorial import CopyReview
+
+        review = CopyReview(
+            passed=False,
+            issues=[{"slide_index": 1, "fix": "Unsupported AI capability"}],
+        )
 
     def fail_review(prompt: str) -> Deck:
         raise DeckReviewError(review, repair_rounds=2)
@@ -366,8 +374,11 @@ def test_review_failure_logs_findings_but_keeps_user_error_generic(tmp_path, cap
         submitted = runner.submit("Make a product deck")
         failed = wait_for_status(store, submitted.id, "failed")
         assert failed.error == USER_ERROR
+        assert failed.failure.code == "source_review_failed"
+        assert failed.failure.stage == "review"
         assert "Unsupported AI capability" not in caplog.text
         assert "issues=1" in caplog.text
+        assert "reason=source_review_failed stage=review" in caplog.text
         assert submitted.id in caplog.text
     finally:
         runner.close()
