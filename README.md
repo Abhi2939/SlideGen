@@ -86,6 +86,8 @@ The application has model defaults, so the key and provider are enough to get st
 
 You can override all stages with `SLIDEGEN_MODEL`, or override an individual stage with `SLIDEGEN_ANALYSIS_MODEL`, `SLIDEGEN_OUTLINE_MODEL`, `SLIDEGEN_WRITING_MODEL`, or `SLIDEGEN_REVIEW_MODEL`. `SLIDEGEN_STRUCTURED_ATTEMPTS` controls retries when provider output is invalid JSON or does not match its schema; it defaults to `2`.
 
+GPT-OSS requests start with strict JSON Schema output. If Groq rejects generation with HTTP 400 `json_validate_failed` or `output_parse_failed`, the next configured attempt switches to JSON-object mode with low reasoning effort. The same local schema and source checks still apply. Quota and authentication errors do not trigger this recovery. Logs distinguish provider rejections from local validation failures and include the output mode, completion limit, schema identifier and available provider request ID. Failed requests report unknown token counts instead of zero; error bodies and generated content are excluded from logs.
+
 Model availability can change. If a configured model ID is no longer enabled for your Groq account, update the corresponding variable in `.env` to an active model ID.
 
 ## Generate a presentation

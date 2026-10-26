@@ -158,12 +158,97 @@ def test_provider_parse_error_recovers_without_reusing_failed_generation(code, n
     assert provider.calls[0][1]["response_format"]["type"] == "json_schema"
     assert provider.calls[0][1]["reasoning_effort"] == "medium"
     recovery = provider.calls[1][1]
-    assert recovery["response_format"]["type"] == "json_schema"
-    assert recovery["response_format"]["json_schema"]["strict"] is True
+    assert recovery["response_format"] == {"type": "json_object"}
     assert recovery["reasoning_effort"] == "low"
     assert recovery["max_tokens"] == 1800
     assert "PRIVATE_COMPLETION" not in json.dumps(provider.calls)
     assert "PRIVATE_CREDENTIAL" not in json.dumps(provider.calls)
+
+
+@pytest.mark.parametrize("raw", ['{"title":7}', '{"wrong":"field"}', "not json"])
+def test_provider_recovery_never_accepts_content_that_fails_local_validation(raw):
+    provider = FakeProvider([parse_error("json_validate_failed"), raw])
+    with pytest.raises(StructuredOutputError) as caught:
+        StructuredGenerator(LLMClient(provider)).generate(
+            Result,
+            stage="outline",
+            model="openai/gpt-oss-20b",
+            system_prompt="Return JSON.",
+            user_prompt="Make a title.",
+        )
+    assert caught.value.attempts == 2
+    assert provider.calls[1][1]["response_format"] == {"type": "json_object"}
+
+
+def test_json_object_recovery_stays_active_during_local_schema_correction():
+    provider = FakeProvider(
+        [parse_error("json_validate_failed"), '{"title":7}', '{"title":"Ready"}']
+    )
+    result = StructuredGenerator(LLMClient(provider), max_attempts=3).generate(
+        Result,
+        stage="outline",
+        model="openai/gpt-oss-20b",
+        system_prompt="Return JSON.",
+        user_prompt="Make a title.",
+    )
+    assert result.title == "Ready"
+    assert [kwargs["response_format"]["type"] for _, kwargs in provider.calls] == [
+        "json_schema",
+        "json_object",
+        "json_object",
+    ]
+
+
+def test_provider_rejection_logs_safe_request_metadata_without_generated_content(caplog):
+    error = parse_error("json_validate_failed")
+    error.response.headers["x-request-id"] = "req_0123456789abcdef"
+    provider = FakeProvider([error, '{"title":"Ready"}'])
+    caplog.set_level("INFO")
+    StructuredGenerator(LLMClient(provider)).generate(
+        Result,
+        stage="outline",
+        model="openai/gpt-oss-20b",
+        system_prompt="Return JSON.",
+        user_prompt="Make a title.",
+        max_tokens=3600,
+    )
+    assert "code=json_validate_failed" in caplog.text
+    assert "req_0123456789abcdef" in caplog.text
+    assert "schema_id=" in caplog.text
+    assert "generated_characters" in caplog.text
+    assert "generated_json_valid" in caplog.text
+    assert "prompt_tokens=None completion_tokens=None" in caplog.text
+    assert "response_format=json_schema" in caplog.text
+    assert "response_format=json_object" in caplog.text
+    assert "max_completion_tokens=3600" in caplog.text
+    assert "PRIVATE_COMPLETION" not in caplog.text
+    assert "PRIVATE_CREDENTIAL" not in caplog.text
+
+
+@pytest.mark.parametrize("generated,valid", [(' {"title":"PRIVATE"} ', True), ('{"title":', False)])
+def test_provider_failure_metadata_records_only_json_shape(generated, valid):
+    from app.llm.client import response_error_diagnostics
+
+    error = parse_error("json_validate_failed")
+    error.response.headers["x-request-id"] = "PRIVATE_CREDENTIAL"
+    diagnostics = response_error_diagnostics(error, {"failed_generation": generated})
+    assert diagnostics == {
+        "generated_characters": len(generated),
+        "generated_json_valid": valid,
+    }
+
+
+def test_rate_limit_after_schema_recovery_stops_without_a_third_request():
+    provider = FakeProvider([parse_error("json_validate_failed"), ProviderLimitError()])
+    with pytest.raises(ProviderLimitError):
+        StructuredGenerator(LLMClient(provider), max_attempts=3).generate(
+            Result,
+            stage="outline",
+            model="openai/gpt-oss-20b",
+            system_prompt="Return JSON.",
+            user_prompt="Make a title.",
+        )
+    assert len(provider.calls) == 2
 
 
 @pytest.mark.parametrize("model", ["openai/gpt-oss-20b", "openai/gpt-oss-120b"])

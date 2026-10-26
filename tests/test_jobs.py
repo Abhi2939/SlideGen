@@ -273,7 +273,9 @@ def test_job_recovers_analysis_parse_failure_and_saves_deck(tmp_path):
     assert completed.error is None
     assert Path(completed.output_path).is_file()
     assert len(calls) == 7
-    assert all(call["type"] == "json_schema" for call in calls)
+    assert calls[0]["type"] == "json_schema"
+    assert calls[1] == {"type": "json_object"}
+    assert all(call["type"] == "json_schema" for call in calls[2:])
 
 
 def test_job_corrects_out_of_range_review_references_and_saves_powerpoint(tmp_path):

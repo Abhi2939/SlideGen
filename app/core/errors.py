@@ -8,9 +8,17 @@ class SlideGenError(Exception):
 class LLMProviderError(SlideGenError):
     """An LLM provider could not return a completion."""
 
-    def __init__(self, message: str, *, status_code: int | None = None, code: str | None = None):
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str | None = None,
+        diagnostics: dict | None = None,
+    ):
         self.status_code = status_code
         self.code = code
+        self.diagnostics = diagnostics or {}
         super().__init__(message)
 
 
@@ -32,6 +40,7 @@ class ProviderLimitError(LLMProviderError):
         super().__init__(
             message,
             status_code=429,
+            diagnostics=self.diagnostics,
         )
 
 

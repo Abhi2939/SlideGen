@@ -1,6 +1,7 @@
 """Validated structured-output requests with bounded stage-local retries."""
 
 import json
+import hashlib
 import logging
 import os
 from threading import Event
@@ -113,6 +114,9 @@ class StructuredGenerator:
         ]
         last_detail = "no response"
         request_format = recovery_format(model, output_model.__name__, schema)
+        schema_id = hashlib.sha256(
+            json.dumps(schema, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()[:16]
 
         for attempt in range(1, self.max_attempts + 1):
             if self._limited.is_set():
@@ -148,6 +152,19 @@ class StructuredGenerator:
                 raise
             except LLMProviderError as exc:
                 last_detail = str(exc)
+                log.warning(
+                    "structured provider failure: stage=%s model=%s attempt=%d/%d "
+                    "response_format=%s schema_id=%s HTTP=%s code=%s diagnostics=%s",
+                    safe_label(stage),
+                    safe_label(model),
+                    attempt,
+                    self.max_attempts,
+                    request_format["type"],
+                    schema_id,
+                    exc.status_code,
+                    safe_label(exc.code) if exc.code else None,
+                    exc.diagnostics,
+                )
                 # Groq can reject a completion when its JSON-mode generation
                 # is malformed, before returning any content to parse. Retry
                 # only that specific response-format failure. In particular,
@@ -156,7 +173,10 @@ class StructuredGenerator:
                 if _is_provider_json_validation_error(exc):
                     if attempt == self.max_attempts:
                         raise StructuredOutputError(stage, attempt, last_detail) from exc
-                    request_format = recovery_format(model, output_model.__name__, schema)
+                    # A second native-schema request can repeat the provider's
+                    # decoding failure. Use a different output mode while the
+                    # complete Pydantic and semantic validators remain mandatory.
+                    request_format = {"type": "json_object"}
                     messages = [
                         *messages,
                         {
@@ -181,7 +201,6 @@ class StructuredGenerator:
                         "content": "The provider returned an empty response. Retry the same task and return only valid JSON.",
                     },
                 ]
-                request_format = recovery_format(model, output_model.__name__, schema)
                 continue
 
             try:
@@ -197,6 +216,17 @@ class StructuredGenerator:
                     if isinstance(exc, json.JSONDecodeError)
                     else "response did not match the required schema"
                 )
+                log.warning(
+                    "structured local validation failure: stage=%s model=%s attempt=%d/%d "
+                    "response_format=%s schema_id=%s category=%s",
+                    safe_label(stage),
+                    safe_label(model),
+                    attempt,
+                    self.max_attempts,
+                    request_format["type"],
+                    schema_id,
+                    "json_syntax" if isinstance(exc, json.JSONDecodeError) else "schema",
+                )
                 if attempt == self.max_attempts:
                     break
                 messages = [
@@ -210,6 +240,5 @@ class StructuredGenerator:
                         ),
                     },
                 ]
-                request_format = recovery_format(model, output_model.__name__, schema)
 
         raise StructuredOutputError(stage, self.max_attempts, last_detail)

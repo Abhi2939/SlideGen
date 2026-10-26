@@ -44,6 +44,18 @@ def test_wrapped_provider_auth_failure_is_distinct_from_rate_limit():
     assert "PRIVATE" not in details.model_dump_json()
 
 
+@pytest.mark.parametrize("code", ["json_validate_failed", "output_parse_failed"])
+def test_provider_outline_rejection_is_distinct_from_locally_unreadable_json(code):
+    failure = StructuredOutputError("outline", 2, "PRIVATE")
+    failure.__cause__ = LLMProviderError("PRIVATE", status_code=400, code=code)
+    details = describe_failure(failure)
+    assert details.code == "provider_output_rejected"
+    assert details.provider_code == code
+    assert details.stage == "outline"
+    assert "presentation outline" in details.message
+    assert "PRIVATE" not in details.model_dump_json()
+
+
 def test_failure_details_survive_restart_and_terminal_updates(tmp_path):
     store = JobStore(tmp_path)
     job = store.create("PRIVATE_BRIEF")

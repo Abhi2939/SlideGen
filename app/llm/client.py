@@ -2,10 +2,12 @@
 
 from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
+import json
 import logging
 import math
 import os
 import random
+import re
 
 from app.core.errors import LLMProviderError, ProviderLimitError
 from app.llm.limits import header_diagnostics, provider_limit_error, safe_label
@@ -13,6 +15,25 @@ from app.llm.pacing import shared_limiter
 from app.llm.schema import GPT_OSS_MODELS
 
 log = logging.getLogger(__name__)
+
+
+def response_error_diagnostics(exc, error):
+    """Keep request correlation and output shape without retaining generated text."""
+    diagnostics = {}
+    headers = getattr(getattr(exc, "response", None), "headers", {})
+    request_id = headers.get("x-request-id") if isinstance(headers, Mapping) else None
+    if isinstance(request_id, str) and re.fullmatch(r"req_[A-Za-z0-9_-]{8,80}", request_id):
+        diagnostics["request_id"] = request_id
+    failed = error.get("failed_generation") if isinstance(error, Mapping) else None
+    if isinstance(failed, str):
+        diagnostics["generated_characters"] = len(failed)
+        try:
+            json.loads(failed)
+        except (ValueError, RecursionError):
+            diagnostics["generated_json_valid"] = False
+        else:
+            diagnostics["generated_json_valid"] = True
+    return diagnostics
 
 
 def prompt_tokens(messages):
@@ -86,8 +107,11 @@ class LLMClient:
         retries = 0
         waited = 0.0
         model_waited = 0.0
-        completion_count = 0
-        actual_prompt = estimated_prompt
+        completion_count = None
+        actual_prompt = None
+        succeeded = False
+        used_format = None
+        used_effort = None
         last_limit = None
 
         def check_deadline():
@@ -139,6 +163,8 @@ class LLMClient:
                             if fmt and fmt.get("type") == "json_schema":
                                 fmt = {"type": "json_object"}
                         try:
+                            used_format = fmt.get("type") if fmt else "text"
+                            used_effort = effort
                             content = self._request(
                                 messages,
                                 model=current,
@@ -187,6 +213,7 @@ class LLMClient:
                             completion_count = getattr(
                                 usage, "completion_tokens", math.ceil(len(content) / 4)
                             )
+                            succeeded = True
                             return content.strip()
                 finally:
                     limiter.semaphore.release()
@@ -201,7 +228,9 @@ class LLMClient:
         finally:
             log.info(
                 "llm call: stage=%s model=%s prompt_tokens=%s completion_tokens=%s "
-                "wait_seconds=%.2f retries=%d fallback_used=%s",
+                "wait_seconds=%.2f retries=%d fallback_used=%s succeeded=%s "
+                "estimated_prompt_tokens=%d response_format=%s reasoning_effort=%s "
+                "max_completion_tokens=%d",
                 safe_label(stage),
                 safe_label(models[model_index]),
                 actual_prompt,
@@ -209,6 +238,11 @@ class LLMClient:
                 waited,
                 retries,
                 model_index > 0,
+                succeeded,
+                estimated_prompt,
+                used_format,
+                used_effort,
+                max_tokens,
             )
 
     def _request(
@@ -246,7 +280,12 @@ class LLMClient:
                 detail += f" (HTTP {status})"
             if code is not None:
                 detail += f": {code}"
-            raise LLMProviderError(detail, status_code=status, code=code) from None
+            raise LLMProviderError(
+                detail,
+                status_code=status,
+                code=code,
+                diagnostics=response_error_diagnostics(exc, error),
+            ) from None
         if not isinstance(content, str) or not content.strip():
             raise LLMProviderError("provider returned an empty response", code="empty_response")
         return content

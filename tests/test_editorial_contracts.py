@@ -8,6 +8,7 @@ from app.core.deck_schema import Deck, StorySlide
 from app.core.errors import (
     DeckReviewError,
     LLMProviderError,
+    OutlineSourceError,
     SlideWriteError,
     StructuredOutputError,
 )
@@ -27,7 +28,7 @@ from app.pipeline.editorial import (
 )
 from app.pipeline.orchestrator import generate_deck
 from test_editorial_pipeline import FIXTURE, PROMPT, StoryGenerator
-from test_llm_structured import FakeProvider
+from test_llm_structured import FakeProvider, parse_error
 
 
 @pytest.mark.parametrize("archetype,bounds", ITEM_BOUNDS.items())
@@ -192,6 +193,45 @@ def test_review_references_are_bounded_by_actual_slides_and_fact_ids():
     assert model(passed=True).missing_fact_ids == []
     with pytest.raises(ValidationError):
         planned_review_model(8, 0)(passed=False, missing_fact_ids=[0])
+
+
+@pytest.mark.parametrize("invented_fact", [False, True])
+def test_outline_native_schema_recovery_preserves_source_checks_and_reaches_saved_deck(
+    monkeypatch, tmp_path, invented_fact
+):
+    from app.render.builder import build_deck
+
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    fixture = StoryGenerator()
+    calls = []
+
+    class Provider:
+        def complete(self, messages, **kwargs):
+            calls.append(kwargs["response_format"]["type"])
+            schema = json.loads(messages[0]["content"].split("JSON Schema:\n")[1])
+            if len(calls) == 1:
+                raise parse_error("json_validate_failed")
+            if schema["title"] == "StoryOutline":
+                result = fixture.generate(StoryOutline, stage="outline")
+                if invented_fact:
+                    result.facts.append("PRIVATE invented company revenue")
+                return result.model_dump_json()
+            if schema["title"] == "PlannedCopyReview":
+                return '{"passed":true,"issues":[],"missing_fact_ids":[]}'
+            return fixture.generate(
+                StorySlide, stage="write", user_prompt=messages[1]["content"]
+            ).model_dump_json()
+
+    generator = StructuredGenerator(LLMClient(Provider()))
+    if invented_fact:
+        with pytest.raises(OutlineSourceError):
+            generate_deck(PROMPT, generator=generator, semantic_attempts=1)
+        assert fixture.stages == ["outline"]
+    else:
+        deck = generate_deck(PROMPT, generator=generator)
+        path = build_deck(deck, tmp_path / "outline-recovery.pptx", strict=True)
+        assert len(Presentation(path).slides) == 9
+    assert calls[:2] == ["json_schema", "json_object"]
 
 
 class DuplicateLaunchReview(StoryGenerator):

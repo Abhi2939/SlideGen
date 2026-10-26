@@ -101,6 +101,17 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
                 failure.provider_status = status
             if cause.code in {"output_parse_failed", "json_validate_failed", "empty_response"}:
                 failure.provider_code = cause.code
+            if (
+                isinstance(exc, StructuredOutputError)
+                and status == 400
+                and cause.code in {"output_parse_failed", "json_validate_failed"}
+            ):
+                failure.code = "provider_output_rejected"
+                failure.message = (
+                    "The AI provider could not generate a valid presentation outline."
+                    if failure.stage == "outline"
+                    else "The AI provider could not generate valid content for this presentation."
+                )
             if status in {401, 403}:
                 failure.code = "provider_access_failed"
                 failure.message = (
