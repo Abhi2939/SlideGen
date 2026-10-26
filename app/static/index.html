@@ -146,6 +146,30 @@
     const downloadLink = document.getElementById('download-link');
     const charCount = document.getElementById('char-count');
     const pollIntervalMs = 2000;
+    const activeJobKey = 'slidegen.activeJob';
+    let activeJobId = null;
+
+    function rememberJob(jobId) {
+      activeJobId = jobId;
+      try {
+        if (jobId) sessionStorage.setItem(activeJobKey, jobId);
+        else sessionStorage.removeItem(activeJobKey);
+      } catch (_) { /* The current page still works when storage is unavailable. */ }
+    }
+
+    async function request(url, options = {}, binary = false) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 30000);
+      try {
+        const response = await fetch(url, { ...options, signal: controller.signal });
+        const data = response.ok
+          ? await (binary ? response.blob() : response.json())
+          : await response.json().catch(() => ({}));
+        return { ok: response.ok, status: response.status, data };
+      } finally {
+        clearTimeout(timer);
+      }
+    }
 
     promptField.addEventListener('input', () => {
       charCount.textContent = `${promptField.value.length} / 4000`;
@@ -159,7 +183,7 @@
     });
 
     function showStatus(message, isError = false) {
-      statusText.textContent = message;
+      statusText.textContent = message + (activeJobId ? ` Job reference: ${activeJobId}.` : '');
       statusBox.classList.add('visible');
       statusBox.classList.toggle('error', isError);
     }
@@ -174,31 +198,39 @@
     }
 
     async function responseDetail(response) {
-      const data = await response.json().catch(() => ({}));
-      return data.detail || 'The request could not be completed. Please try again.';
+      return response.data?.detail || 'The request could not be completed. Please try again.';
     }
 
     async function pollJob(jobId) {
+      rememberJob(jobId);
       let lastState = '';
       let delayMs = pollIntervalMs;
       const startedAt = Date.now();
       while (true) {
         await new Promise((resolve) => setTimeout(resolve, delayMs));
-        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`);
-        if (!response.ok) throw new Error(await responseDetail(response));
-        const job = await response.json();
+        const response = await request(`/api/jobs/${encodeURIComponent(jobId)}`);
+        if (!response.ok) {
+          if (response.status === 404) rememberJob(null);
+          throw new Error(await responseDetail(response));
+        }
+        const job = response.data;
+        if (!['queued', 'running', 'done', 'failed'].includes(job.status)) {
+          throw new Error('The server returned an invalid job status.');
+        }
         const state = JSON.stringify([job.status, job.stage, job.queue_position]);
         delayMs = state === lastState ? Math.min(3000, delayMs + 500) : pollIntervalMs;
         lastState = state;
         if (job.status === 'done') {
           downloadLink.href = `/api/jobs/${encodeURIComponent(jobId)}/download`;
           downloadBox.classList.add('visible');
+          rememberJob(null);
           showStatus('Your presentation is ready to download.');
           setBusy(false);
           return;
         }
         if (job.status === 'failed') {
           const explanation = job.failure?.message || job.error || 'The presentation could not be created. Please try again.';
+          rememberJob(null);
           throw new Error(`${explanation} Job reference: ${job.id}.`);
         }
         const seconds = Math.max(2, Math.round((Date.now() - startedAt) / 1000));
@@ -211,12 +243,20 @@
       }
     }
 
+    function jobError(error) {
+      const message = activeJobId
+        ? 'The connection was interrupted. Your presentation may still be processing. Refresh this page to reconnect.'
+        : error.message || 'The request could not be completed. Please try again.';
+      showStatus(message, true);
+      setBusy(false);
+    }
+
     downloadLink.addEventListener('click', async (event) => {
       event.preventDefault();
       try {
-        const response = await fetch(downloadLink.href);
+        const response = await request(downloadLink.href, {}, true);
         if (!response.ok) throw new Error(await responseDetail(response));
-        const objectUrl = URL.createObjectURL(await response.blob());
+        const objectUrl = URL.createObjectURL(response.data);
         const temporaryLink = document.createElement('a');
         temporaryLink.href = objectUrl;
         temporaryLink.download = `${downloadLink.href.split('/').at(-2)}.pptx`;
@@ -239,19 +279,31 @@
       setBusy(true);
       showStatus('Starting your presentation… Generation time depends on deck size and provider availability.');
       try {
-        const response = await fetch('/api/jobs', {
+        const response = await request('/api/jobs', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ prompt }),
         });
         if (!response.ok) throw new Error(await responseDetail(response));
-        const job = await response.json();
+        const job = response.data;
+        if (!/^[a-f0-9]{32}$/.test(job.id || '')) {
+          throw new Error('The server did not return a job reference. Please try again.');
+        }
         await pollJob(job.id);
       } catch (error) {
-        showStatus(error.message || 'A network error interrupted the request. Please try again.', true);
-        setBusy(false);
+        jobError(error);
       }
     });
+
+    try {
+      const savedJob = sessionStorage.getItem(activeJobKey);
+      if (/^[a-f0-9]{32}$/.test(savedJob || '')) {
+        rememberJob(savedJob);
+        setBusy(true);
+        showStatus('Reconnecting to your presentation...');
+        pollJob(savedJob).catch(jobError);
+      }
+    } catch (_) { /* Storage is optional. */ }
   </script>
 </body>
 </html>

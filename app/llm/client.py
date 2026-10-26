@@ -153,8 +153,11 @@ class LLMClient:
                     wait(1)
                     continue
                 delay = 0
+                reservation_id = object()
                 try:
-                    delay = limiter.reserve(current, estimated_prompt + max_tokens)
+                    delay = limiter.reserve(
+                        current, estimated_prompt + max_tokens, reservation_id=reservation_id
+                    )
                     if not delay:
                         fmt = response_format
                         effort = reasoning_effort
@@ -213,6 +216,15 @@ class LLMClient:
                             completion_count = getattr(
                                 usage, "completion_tokens", math.ceil(len(content) / 4)
                             )
+                            reported_prompt = getattr(usage, "prompt_tokens", None)
+                            reported_completion = getattr(usage, "completion_tokens", None)
+                            if all(
+                                type(count) is int and count >= 0
+                                for count in (reported_prompt, reported_completion)
+                            ):
+                                limiter.settle(
+                                    current, reservation_id, reported_prompt + reported_completion
+                                )
                             succeeded = True
                             return content.strip()
                 finally:

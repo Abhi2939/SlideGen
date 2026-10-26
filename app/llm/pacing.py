@@ -50,9 +50,10 @@ class RateSettings:
 
 
 class TokenLimiter:
-    """Reserve prompt + requested output tokens for a full rolling minute.
+    """Reserve each request's maximum cost until exact usage is reported.
 
-    Header feedback can restrict admission further, never erase reservations.
+    Completed requests retain their reported usage for the rolling minute.
+    Unknown usage retains the full reservation. Headers can restrict admission.
     The semaphore is shared across clients/jobs, as are the model windows.
     """
 
@@ -77,7 +78,7 @@ class TokenLimiter:
         if model in self._remote and self._remote[model][1] <= now:
             del self._remote[model]
 
-    def reserve(self, model, cost):
+    def reserve(self, model, cost, *, reservation_id=None):
         """Atomically reserve if possible; otherwise return the next delay."""
         if cost > self.budget:
             raise LLMProviderError(
@@ -90,8 +91,8 @@ class TokenLimiter:
             self._prune(model, now)
             window = self._windows[model]
             delay = max(0, self._blocked.get(model, 0) - now)
-            usage = sum(tokens for _, tokens in window)
-            for stamp, tokens in window:
+            usage = sum(tokens for _, tokens, _ in window)
+            for stamp, tokens, _ in window:
                 if usage + cost <= self.budget:
                     break
                 delay = max(delay, stamp + 60 - now)
@@ -101,10 +102,22 @@ class TokenLimiter:
                 delay = max(delay, reset - now)
             if delay > 0:
                 return delay
-            window.append((now, cost))
+            window.append((now, cost, reservation_id))
             if model in self._remote:
                 self._remote[model] = (max(0, remaining - cost), reset)
             return 0
+
+    def settle(self, model, reservation_id, actual_cost):
+        """Replace only this completed call's reservation, never another call's."""
+        if reservation_id is None or type(actual_cost) is not int or actual_cost < 0:
+            return
+        with self._lock:
+            self._prune(model, self.clock())
+            window = self._windows[model]
+            for index, (stamp, _, identity) in enumerate(window):
+                if identity is reservation_id:
+                    window[index] = (stamp, actual_cost, identity)
+                    return
 
     def feedback(self, model, details):
         with self._lock:
@@ -125,7 +138,7 @@ class TokenLimiter:
             for model in self._windows:
                 self._prune(model, now)
                 result[model] = {
-                    "window_tokens": sum(n for _, n in self._windows[model]),
+                    "window_tokens": sum(n for _, n, _ in self._windows[model]),
                     "budget_tokens": self.budget,
                     "provider_remaining_tokens": self._remote.get(model, (None,))[0],
                     "blocked_seconds": round(max(0, self._blocked.get(model, 0) - now), 2),

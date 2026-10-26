@@ -89,6 +89,36 @@ def test_gate_requires_actual_saved_lint_and_all_slide_scores(visual_deck, tmp_p
     assert report["attempts"][0]["lint"]["errors"] == []
 
 
+@pytest.mark.parametrize("archetype", ["quote", "big_stat"])
+def test_statement_body_follows_heading_and_long_source_copy_still_exports(
+    visual_deck, tmp_path, archetype
+):
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    description = (
+        "Foundation, lipstick, and skincare are blended exclusively for your skin tone, "
+        "undertone, and individual style, with the supplied launch centered on a quiz, "
+        "waitlist, and creator-led demos."
+    )
+    statement = StorySlide(
+        archetype=archetype,
+        title="The Shade Dilemma",
+        items=[{"title": "Never Wrong Shade", "description": description}],
+    )
+    deck = visual_deck.model_copy(
+        update={"slides": [visual_deck.slides[0], statement, visual_deck.slides[-1]]}
+    )
+    path = build_deck(deck, tmp_path / f"{archetype}-flow.pptx", strict=True)
+    shapes = Presentation(path).slides[1].shapes
+    heading = next(shape for shape in shapes if getattr(shape, "text", "") == "Never Wrong Shade")
+    body = next(shape for shape in shapes if getattr(shape, "text", "") == description)
+    gap = body.top - heading.top - heading.height
+    assert Inches(0.15) <= gap <= Inches(0.35)
+    assert body.top + body.height <= Inches(6.31)
+    assert lint_pptx(path)["errors"] == []
+
+
 def test_low_score_rerenders_and_maximum_three_attempts_never_delivers(visual_deck, tmp_path):
     out = tmp_path / "rejected.pptx"
 

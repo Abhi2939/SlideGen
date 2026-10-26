@@ -75,6 +75,22 @@ class SourceCorrectionGenerator(StoryGenerator):
         return result
 
 
+def test_rate_limit_progress_preserves_the_slide_being_written(monkeypatch):
+    monkeypatch.setattr("app.pipeline.editorial.prepare_assets", lambda deck, *a, **k: deck)
+    progress = []
+
+    class WaitingGenerator(StoryGenerator):
+        def generate(self, output_model, *, stage, **kwargs):
+            if stage == "write" and self.index == 2:
+                self.on_provider_wait(stage, 12)
+                self.on_provider_wait(stage, 0)
+            return super().generate(output_model, stage=stage, **kwargs)
+
+    generate_deck(PROMPT, generator=WaitingGenerator(), progress_callback=progress.append)
+    assert "Writing story slide 3/9: waiting for AI capacity (~12s)..." in progress
+    assert progress.count("Writing story slide 3/9") == 2
+
+
 @pytest.mark.parametrize(
     "rejected_fact",
     [

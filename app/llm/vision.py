@@ -38,15 +38,17 @@ class GroqVisionReviewer:
         settings = settings or Settings.from_env()
         self.generator = StructuredGenerator(client or create_llm_client(settings))
         self.generator.deadline = deadline
+        self._slide_index = 0
         if progress_callback:
             self.generator.on_provider_wait = lambda stage, seconds: progress_callback(
-                f"Waiting for AI rate limit (~{seconds}s)..."
+                f"Reviewing slide {self._slide_index + 1}: waiting for AI capacity (~{seconds}s)..."
                 if seconds
-                else "Reviewing slide design"
+                else f"Reviewing slide {self._slide_index + 1} design"
             )
         self.model = os.getenv("SLIDEGEN_VISION_MODEL", "qwen/qwen3.8-27b")
 
     def __call__(self, png, *, theme, slide_index):
+        self._slide_index = slide_index
         # Groq's vision preprocessing pads wide inputs to a square. Qwen can
         # mistake that padding for blank slide space. Normalize the entire slide
         # to a square, preserving normalized positions, before multimodal review.

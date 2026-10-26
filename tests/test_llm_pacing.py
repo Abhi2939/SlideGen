@@ -41,6 +41,47 @@ def test_models_have_separate_windows_and_oversized_request_fails_fast():
         rate.reserve("primary", 6801)
 
 
+def test_reported_usage_releases_only_unused_tokens_and_preserves_admission_limit():
+    rate, clock = limiter()
+    events = []
+
+    class MeasuredProvider:
+        def complete(self, messages, **kwargs):
+            events.append(clock.now)
+            assert rate.snapshot()["models"]["primary"]["window_tokens"] <= rate.budget
+            return Completion("ok", {}, SimpleNamespace(prompt_tokens=1900, completion_tokens=100))
+
+    client = LLMClient(MeasuredProvider(), limiter=rate)
+    messages = [{"content": "x" * 9008}]  # 2260 estimated prompt + 1600 output.
+    for _ in range(8):
+        client.complete(messages, model="primary", max_tokens=1600)
+    assert events == [0, 0, 60, 60, 120, 120, 180, 180]
+    assert rate.snapshot()["models"]["primary"]["window_tokens"] == 4000
+
+
+def test_unknown_usage_keeps_the_full_reservation():
+    rate, clock = limiter()
+    client = LLMClient(Provider(["ok", "ok"]), limiter=rate)
+    for _ in range(2):
+        client.complete([{"content": "x" * 9008}], model="primary", max_tokens=1600)
+    assert clock.now == 60
+    assert rate.snapshot()["models"]["primary"]["window_tokens"] == 3860
+
+
+def test_settlement_matches_request_identity_and_does_not_refund_remote_limits():
+    rate, _ = limiter()
+    first, second = object(), object()
+    assert rate.reserve("primary", 3000, reservation_id=first) == 0
+    assert rate.reserve("primary", 3000, reservation_id=second) == 0
+    rate.feedback("primary", {"tokens_per_minute_remaining": 100, "tokens_reset_seconds": 20})
+    rate.settle("primary", second, 1000)
+    rate.settle("primary", object(), 0)
+    assert rate.snapshot()["models"]["primary"]["window_tokens"] == 4000
+    assert rate.reserve("primary", 1000) == 20
+    rate.settle("primary", first, 3500)
+    assert rate.snapshot()["models"]["primary"]["window_tokens"] == 4500
+
+
 def test_atomic_reservations_across_threads():
     rate, _ = limiter()
     with ThreadPoolExecutor(max_workers=12) as pool:

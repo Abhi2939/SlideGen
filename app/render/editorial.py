@@ -439,6 +439,17 @@ def render(prs, data, theme, *, brand, number, revision=0):
             diagram.name = "Diagram:timeline"
         elif kind in {"big_stat", "quote"}:
             item = data.items[0]
+            statement_y = max(2.5, content_top)
+            statement_size = (
+                theme.type.stat.pt
+                if kind == "big_stat" and len(item.title) <= 14
+                else theme.type.statement.pt
+            )
+            statement_h = min(
+                2.1,
+                measure_text(item.title, G.span(6), statement_size, theme.font_body)[1] + 0.1,
+            )
+            description_y = G.y(statement_y + statement_h + 0.25)
             # A large supporting image gives the statement an editorial composition.
             if add_asset(
                 slide,
@@ -456,17 +467,22 @@ def render(prs, data, theme, *, brand, number, revision=0):
                 theme,
                 item.title,
                 G.x(0),
-                2.5,
+                statement_y,
                 G.span(6),
-                2.1,
-                theme.type.stat.pt
-                if kind == "big_stat" and len(item.title) <= 14
-                else theme.type.statement.pt,
+                statement_h,
+                statement_size,
                 title=False,
                 color=theme.primary,
             )
             _text(
-                slide, theme, item.description, G.x(0), 5.0, G.span(6), 1.2, theme.type.subtitle.pt
+                slide,
+                theme,
+                item.description,
+                G.x(0),
+                description_y,
+                G.span(6),
+                6.3 - description_y,
+                theme.type.subtitle.pt,
             )
         else:
             raise ValueError("unsupported editorial archetype")

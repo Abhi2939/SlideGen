@@ -636,7 +636,11 @@ def generate_editorial_deck(
         create_llm_client(settings), max_attempts=settings.structured_attempts
     )
 
+    current_step = "Planning story and theme"
+
     def announce(stage):
+        nonlocal current_step
+        current_step = stage
         if deadline is not None and time.monotonic() >= deadline:
             raise TimeoutError("deck generation exceeded its time limit")
         if progress_callback:
@@ -644,9 +648,18 @@ def generate_editorial_deck(
 
     generator.deadline = deadline
     generator.on_provider_limit = provider_limit_callback
-    generator.on_provider_wait = lambda stage, seconds: announce(
-        f"Waiting for AI rate limit (~{seconds}s)..." if seconds else "Generating slide content"
-    )
+
+    def report_wait(stage, seconds):
+        if deadline is not None and time.monotonic() >= deadline:
+            raise TimeoutError("deck generation exceeded its time limit")
+        if progress_callback:
+            progress_callback(
+                f"{current_step}: waiting for AI capacity (~{seconds}s)..."
+                if seconds
+                else current_step
+            )
+
+    generator.on_provider_wait = report_wait
     try:
         outline_prompt = prompt
         for attempt in range(semantic_attempts):
