@@ -5,6 +5,7 @@ SlideGen turns a brief into an editable PowerPoint **draft**. The web app and CL
 ## Default draft delivery
 
 - One request generates the content for the whole deck, with at most two structured-output attempts. Drafts default to six slides and support explicit counts from three to ten.
+- Oversized points are reflowed locally when their complete text fits the existing slide limits. If both AI responses fail local validation, an eligible declarative company brief can be rebuilt from the original source text. This recovery discards the rejected AI content, retains the requested slide count, and must pass the same source, numeric and export checks. Its provenance is recorded in speaker notes. General-topic instructions without source facts, oversized briefs, provider access errors and quota failures are not converted into successful drafts.
 - Company facts are inserted from verified excerpts of the brief rather than model-written marketing claims. Supplied numbers and percentages are checked. General-topic copy still needs a human accuracy review.
 - Export checks text fit, fonts, contrast, bounds and the actual saved PowerPoint. These checks do not require photo downloads, LibreOffice or an AI vision model.
 - Drafts default to a fuller studio design with blush, lavender, teal, gold and blue accents, tinted panels, larger editable product figures, a personalization map and a growth roadmap. Beauty prompts use the `studio-beauty` palette; other topics use `studio`. Explicit `reference` and other theme choices remain available. Source wording stays visible, and diagrams preserve supplied activities without inventing quarterly dates.
@@ -30,6 +31,8 @@ Draft endpoints:
 The browser retains the active job and latest completed draft for the current browser session. Refresh reconnects to the same job. Network requests, including response-body reads, are bounded to 30 seconds. `/healthz` reports the deployed revision and delivery mode in response headers.
 
 Source checks verify supplied excerpts and catch common unsupported numeric, contact and commercial claims; they are not independent fact checking. Review draft details before sharing. No draft or low-scoring review is represented as an approved client presentation.
+
+Validation logs include bounded schema-owned field paths and fixed reason codes, for example `sections.0.points.0/string_too_long` or `draft_fact_not_in_source`. They exclude response text, input values and validator messages. A schema rejection alone does not establish that the brief is too long; the public error message therefore describes a validation failure rather than requiring the user to rewrite the prompt.
 
 To preview the richer design from a saved Blush draft without another AI request, run `python scripts/rich_design_preview.py --input-pptx output.pptx`. It reuses the saved source copy, applies the local source checks, and writes the revised deck and check report to `outputs/qa/vivid-refresh/`. This is a content replay, not a fresh generation. The earlier navy/green fixture remains available through `scripts/draft_design_preview.py`.
 

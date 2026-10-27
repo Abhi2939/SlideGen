@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Annotated
 
 from pydantic import BaseModel, Field, create_model, model_validator
+from pydantic_core import PydanticCustomError
 
 from app.config import Settings
 from app.core.deck_schema import ClosingSlide, Deck, DraftSlide, TitleSlide
@@ -35,13 +36,30 @@ class DraftSection(BaseModel):
     )
     source_fact_ids: list[int] = Field(default_factory=list, max_length=12)
 
+    @model_validator(mode="before")
+    @classmethod
+    def reflow_points(cls, value):
+        if not isinstance(value, dict) or not isinstance(value.get("points"), list):
+            return value
+        points = value["points"]
+        if not all(isinstance(point, str) for point in points):
+            return value
+        if any(len(point) > 160 or len(point.split()) > 30 for point in points):
+            pieces = [piece for point in points for piece in _source_points(point)]
+            if 1 <= len(pieces) <= 4:
+                return {**value, "points": pieces}
+        return value
+
     @model_validator(mode="after")
     def point_lengths(self):
         if any(
             not point.strip() or len(point) > 160 or len(point.split()) > 30
             for point in self.points
         ):
-            raise ValueError("Each point must contain 1-160 characters and at most 30 words.")
+            raise PydanticCustomError(
+                "draft_point_limit",
+                "Each point must contain 1-160 characters and at most 30 words.",
+            )
         return self
 
 
@@ -109,10 +127,10 @@ def requested_slide_count(prompt):
     return 6
 
 
-def _source_points(fact):
+def _source_points(fact, *, max_chars=150, max_words=28):
     points, words = [], []
     for word in fact.split():
-        if words and (len(" ".join([*words, word])) > 150 or len(words) >= 28):
+        if words and (len(" ".join([*words, word])) > max_chars or len(words) >= max_words):
             points.append(" ".join(words))
             words = []
         words.append(word)
@@ -131,19 +149,28 @@ def _ground_company_copy(content, prompt):
     if not company:
         return
     if not content.facts:
-        raise ValueError("Extract the supplied company facts as verbatim excerpts.")
+        raise PydanticCustomError(
+            "draft_missing_source_facts", "Extract the supplied company facts as verbatim excerpts."
+        )
     grounded = [[] for _ in content.sections]
     assigned = [[] for _ in content.sections]
+    assigned_kinds = [set() for _ in content.sections]
     for section in content.sections:
         if any(not 0 <= fact_id < len(content.facts) for fact_id in section.source_fact_ids):
-            raise ValueError("Source fact references must point to an extracted fact.")
+            raise PydanticCustomError(
+                "draft_invalid_fact_reference",
+                "Source fact references must point to an extracted fact.",
+            )
     for fact_id, fact in enumerate(content.facts):
         for unit in source_units(fact):
             points = _source_points(unit)
             kind = content_kind(unit)
             available = [i for i, values in enumerate(grounded) if len(values) + len(points) <= 4]
             if not available:
-                raise ValueError("Request more slides to preserve all the supplied details.")
+                raise PydanticCustomError(
+                    "draft_source_capacity",
+                    "Request more slides to preserve all the supplied details.",
+                )
             # Match actual source content to the section topic before falling back
             # to model references or unused sections. Never drop a source unit.
             target = min(
@@ -158,17 +185,21 @@ def _ground_company_copy(content, prompt):
             )
             grounded[target].extend(points)
             assigned[target].append(fact_id)
+            if kind:
+                assigned_kinds[target].add(kind)
     role_titles = {
         "collection": "Product range",
         "personalization": "Personalization",
         "launch": "Launch plan",
         "growth": "Growth plan",
     }
-    for section, points, ids in zip(content.sections, grounded, assigned):
+    for section, points, ids, kinds in zip(content.sections, grounded, assigned, assigned_kinds):
         if points:
-            kind = content_kind(" ".join(points))
+            kind = next(iter(kinds)) if len(kinds) == 1 else None
             if kind and content_kind(section.title) != kind:
                 section.title = role_titles[kind]
+            elif len(kinds) > 1:
+                section.title = "Overview"
             section.source_fact_ids = list(dict.fromkeys(ids))
         if not points:
             points = [
@@ -214,7 +245,10 @@ def planned_draft_model(prompt):
         source = _normalized(prompt)
         for fact in self.facts:
             if not _normalized(fact) or _normalized(fact) not in source:
-                raise ValueError("Facts must be exact excerpts from the original brief.")
+                raise PydanticCustomError(
+                    "draft_fact_not_in_source",
+                    "Facts must be exact excerpts from the original brief.",
+                )
         _ground_company_copy(self, prompt)
         visible = " ".join(
             [
@@ -225,24 +259,38 @@ def planned_draft_model(prompt):
                 self.closing_text,
             ]
         )
+        body = _normalized(" ".join(point for section in self.sections for point in section.points))
         for fact in self.facts:
-            if _normalized(fact) not in _normalized(visible) and not is_supported_paraphrase(
-                fact, visible
+            if (
+                _normalized(fact) not in body
+                and _normalized(fact) not in _normalized(visible)
+                and not is_supported_paraphrase(fact, visible)
             ):
-                raise ValueError(
-                    "Every extracted source fact must also appear visibly in the slides."
+                raise PydanticCustomError(
+                    "draft_fact_not_visible",
+                    "Every extracted source fact must also appear visibly in the slides.",
                 )
         if _numbers(visible) - _numbers(prompt):
-            raise ValueError("Remove numbers, dates or percentages not supplied in the brief.")
+            raise PydanticCustomError(
+                "draft_unprovided_number",
+                "Remove numbers, dates or percentages not supplied in the brief.",
+            )
         factual_prompt = re.sub(r"\b\d{1,2}[ -]slides?\b", "", prompt, flags=re.I)
         if _numbers(factual_prompt) - _numbers(visible):
-            raise ValueError("Preserve the numbers and percentages supplied in the brief visibly.")
+            raise PydanticCustomError(
+                "draft_missing_number",
+                "Preserve the numbers and percentages supplied in the brief visibly.",
+            )
         for contact in re.findall(r"https?://\S+|[\w.+-]+@[\w.-]+\.\w+", visible):
             if contact not in prompt:
-                raise ValueError("Remove contact information not supplied in the brief.")
+                raise PydanticCustomError(
+                    "draft_unprovided_contact",
+                    "Remove contact information not supplied in the brief.",
+                )
         if unsupported_specific_claim_categories(visible, prompt):
-            raise ValueError(
-                "Remove unsupported pricing, traction, credentials, competitors or funding terms."
+            raise PydanticCustomError(
+                "draft_unsupported_specific_claim",
+                "Remove unsupported pricing, traction, credentials, competitors or funding terms.",
             )
         unsupported = unsupported_claim_categories(
             visible, prompt, allow_structural_inference=True, allow_problem_framing=True
@@ -255,7 +303,9 @@ def planned_draft_model(prompt):
             ):
                 unsupported.remove("unsupported company scope or operations")
         if unsupported:
-            raise ValueError("Remove unsupported claims: " + ", ".join(unsupported))
+            raise PydanticCustomError(
+                "draft_unsupported_claim", "Remove unsupported claims: " + ", ".join(unsupported)
+            )
         return self
 
     return create_model(
@@ -301,23 +351,47 @@ def generate_draft_deck(
     )
     try:
         announce(f"Drafting {count} slides")
-        content = generator.generate(
-            output_model,
-            stage="write",
-            model=settings.model_for("write"),
-            system_prompt=DRAFT_PROMPT,
-            user_prompt=json.dumps({"brief": prompt, "total_slides": count}),
-            max_tokens=3600,
-            compact_corrections=True,
-        )
-        announce("Checking content against your brief")
+        recovered = False
         try:
-            content = output_model.model_validate(content.model_dump())
-        except ValueError:
-            reject_checkpoint(content)
-            raise
+            content = generator.generate(
+                output_model,
+                stage="write",
+                model=settings.model_for("write"),
+                system_prompt=DRAFT_PROMPT,
+                user_prompt=json.dumps({"brief": prompt, "total_slides": count}),
+                max_tokens=3600,
+                compact_corrections=True,
+            )
+            announce("Checking content against your brief")
+            try:
+                content = output_model.model_validate(content.model_dump())
+            except ValueError:
+                reject_checkpoint(content)
+                raise
+        except (StructuredOutputError, ValueError) as exc:
+            if isinstance(exc, StructuredOutputError) and exc.detail not in {
+                "response did not match the required schema",
+                "response was not valid JSON",
+            }:
+                raise
+            from app.pipeline.draft_recovery import source_only_content
+
+            announce("Preparing slides from your supplied details")
+            content = source_only_content(prompt, output_model)
+            if content is None:
+                raise DraftContentError(getattr(exc, "attempts", 1)) from exc
+            recovered = True
+            log.info(
+                "draft recovered from source: sections=%d facts=%d",
+                len(content.sections),
+                len(content.facts),
+            )
         title = beauty_brand(prompt) or content.title
-        notes = "AI-generated draft. Review details before sharing. AI visual review has not run."
+        notes = (
+            "Source-only draft rebuilt from the supplied brief after AI content validation failed. "
+            if recovered
+            else "AI-generated draft. "
+        ) + "Review details before sharing. AI visual review has not run."
         slides = [
             TitleSlide(title=title, subtitle=content.subtitle, layout="title", speaker_notes=notes)
         ]
@@ -343,10 +417,6 @@ def generate_draft_deck(
             slides=slides,
             design_version="draft-v1",
         )
-    except StructuredOutputError as exc:
-        if exc.detail == "response did not match the required schema":
-            raise DraftContentError(exc.attempts) from exc
-        raise
     finally:
         if hasattr(generator, "usage") and usage_callback:
             usage_callback(generator.usage.snapshot())

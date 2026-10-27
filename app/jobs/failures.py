@@ -71,7 +71,7 @@ def describe_failure(exc: Exception, *, stage: str = "generate") -> JobFailure:
             )
     elif isinstance(exc, DraftContentError):
         failure.code = "draft_content_invalid"
-        failure.message = "The AI could not match the brief within the draft's content limits. Try rephrasing the brief or requesting more slides."
+        failure.message = "The AI response could not be validated against your brief. Please try again and include the job reference if the problem repeats."
     elif isinstance(exc, StructuredOutputError):
         failure.code = "invalid_ai_response"
         failure.message = "The AI returned an unreadable or incomplete response."

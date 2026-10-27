@@ -21,6 +21,102 @@ from app.llm.usage import TokenUsage, usage_scope
 T = TypeVar("T", bound=BaseModel)
 log = logging.getLogger(__name__)
 
+_SAFE_VALIDATION_TYPES = frozenset(
+    {
+        "missing",
+        "extra_forbidden",
+        "string_type",
+        "string_too_short",
+        "string_too_long",
+        "string_pattern_mismatch",
+        "list_type",
+        "too_short",
+        "too_long",
+        "dict_type",
+        "int_type",
+        "int_parsing",
+        "int_from_float",
+        "float_type",
+        "float_parsing",
+        "bool_type",
+        "bool_parsing",
+        "literal_error",
+        "enum",
+        "value_error",
+        "greater_than",
+        "greater_than_equal",
+        "less_than",
+        "less_than_equal",
+        "model_type",
+        "union_tag_invalid",
+        "union_tag_not_found",
+        "none_required",
+        "draft_point_limit",
+        "draft_missing_source_facts",
+        "draft_invalid_fact_reference",
+        "draft_source_capacity",
+        "draft_fact_not_in_source",
+        "draft_fact_not_visible",
+        "draft_unprovided_number",
+        "draft_missing_number",
+        "draft_unprovided_contact",
+        "draft_unsupported_specific_claim",
+        "draft_unsupported_claim",
+    }
+)
+
+
+def validation_issues(exc, schema):
+    """Log only schema-owned paths and fixed error codes, never values/messages."""
+    if not isinstance(exc, ValidationError):
+        return []
+    fields = set()
+
+    def visit(node):
+        if isinstance(node, dict):
+            properties = node.get("properties")
+            if isinstance(properties, dict):
+                fields.update(properties)
+            for child in node.values():
+                visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(schema)
+    issues = []
+    for error in exc.errors(include_input=False, include_context=False, include_url=False)[:8]:
+        path = (
+            ".".join(
+                str(part)
+                if type(part) is int and 0 <= part <= 10000
+                else part
+                if isinstance(part, str) and part in fields
+                else "*"
+                for part in error["loc"]
+            )
+            or "$"
+        )
+        issues.append(
+            {
+                "path": path,
+                "type": error["type"]
+                if error["type"] in _SAFE_VALIDATION_TYPES
+                else "validation_error",
+            }
+        )
+    return issues
+
+
+def _correction_detail(exc, fallback, schema):
+    if not isinstance(exc, ValidationError):
+        return fallback
+    issues = validation_issues(exc, schema)
+    errors = exc.errors(include_input=False, include_context=False, include_url=False)
+    return "; ".join(f"{issue['path']}: {error['msg']}" for issue, error in zip(issues, errors))[
+        :700
+    ]
+
 
 def _decode_json(content: str) -> Any:
     text = content.strip()
@@ -197,11 +293,7 @@ class StructuredGenerator:
                 if attempt == self.max_attempts:
                     break
                 if compact_corrections:
-                    detail = (
-                        "; ".join(error["msg"] for error in exc.errors(include_input=False))[:700]
-                        if isinstance(exc, ValidationError)
-                        else last_detail
-                    )
+                    detail = _correction_detail(exc, last_detail, schema)
                     messages = [
                         *task_messages,
                         {
@@ -237,7 +329,7 @@ class StructuredGenerator:
                 )
                 log.warning(
                     "structured local validation failure: stage=%s model=%s attempt=%d/%d "
-                    "response_format=%s schema_id=%s category=%s",
+                    "response_format=%s schema_id=%s category=%s validation=%s",
                     safe_label(stage),
                     safe_label(model),
                     attempt,
@@ -245,15 +337,12 @@ class StructuredGenerator:
                     request_format["type"],
                     schema_id,
                     "json_syntax" if isinstance(exc, json.JSONDecodeError) else "schema",
+                    json.dumps(validation_issues(exc, schema), separators=(",", ":")),
                 )
                 if attempt == self.max_attempts:
                     break
                 if compact_corrections:
-                    detail = (
-                        "; ".join(error["msg"] for error in exc.errors(include_input=False))[:700]
-                        if isinstance(exc, ValidationError)
-                        else last_detail
-                    )
+                    detail = _correction_detail(exc, last_detail, schema)
                     messages = [
                         *task_messages,
                         {

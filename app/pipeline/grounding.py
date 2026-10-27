@@ -178,7 +178,10 @@ def is_supported_paraphrase(claim: str, source_text: str) -> bool:
         for token in re.findall(r"[a-z0-9]+", claim.casefold())
         if token not in _PARAPHRASE_STOP_WORDS
     }
-    source_tokens = set(re.findall(r"[a-z0-9]+", source_text.casefold()))
+    source_tokens = {
+        _singularize_claim_token(token)
+        for token in re.findall(r"[a-z0-9]+", source_text.casefold())
+    }
     if not claim_tokens:
         return False
 

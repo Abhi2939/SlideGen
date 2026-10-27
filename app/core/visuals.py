@@ -22,9 +22,13 @@ def content_kind(text):
 
 
 def source_units(fact):
-    """Separate an explicit product clause from its personalization clause."""
+    """Split explicit product/personalization and launch/growth source clauses."""
     if re.search(r"\boffering\b", fact, re.I):
         match = re.search(r"\bblended\s+exclusively\b", fact, re.I)
         if match and re.search(r"\bfor\s+your\b", fact[match.start() :], re.I):
+            return [fact[: match.start()].strip(), fact[match.start() :].strip()]
+    if re.search(r"\blaunch\b", fact, re.I):
+        match = re.search(r"\b(?:followed\s+by\s+)?quarterly\s+growth\s+through\b", fact, re.I)
+        if match:
             return [fact[: match.start()].strip(), fact[match.start() :].strip()]
     return [fact]

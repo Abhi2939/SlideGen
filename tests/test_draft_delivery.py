@@ -11,7 +11,7 @@ from fastapi.testclient import TestClient
 from pptx import Presentation
 from pydantic import ValidationError
 
-from app.core.errors import DraftContentError, ProviderLimitError, StructuredOutputError
+from app.core.errors import DraftContentError, ProviderLimitError
 from app.jobs.runner import JobRunner
 from app.jobs.store import JobStore
 from app.llm.client import LLMClient, prompt_tokens
@@ -152,13 +152,17 @@ def test_source_correction_is_bounded_and_does_not_repeat_the_whole_rejected_dec
     assert prompt_tokens(correction) + 3600 < 6800
 
 
-def test_exhausted_content_validation_and_quota_fail_clearly():
+def test_exhausted_company_validation_rebuilds_only_source_and_quota_still_fails():
     bad = content()
     bad["facts"].append("PRIVATE invented evidence")
     fake, provider = generator([json.dumps(bad)] * 2)
-    with pytest.raises(StructuredOutputError):
-        generate_draft_deck(PROMPT, generator=fake)
+    deck = generate_draft_deck(PROMPT, generator=fake)
     assert len(provider.calls) == 2
+    assert len(deck.slides) == 6
+    visible = " ".join(point for slide in deck.slides for point in getattr(slide, "points", []))
+    assert "PRIVATE invented evidence" not in visible
+    assert "festive scaling" in visible
+    assert all("Source-only draft" in slide.speaker_notes for slide in deck.slides)
     fake, provider = generator([ProviderLimitError()])
     with pytest.raises(ProviderLimitError):
         generate_draft_deck(PROMPT, generator=fake)
@@ -171,7 +175,8 @@ def test_content_limit_failure_has_actionable_safe_details():
     failure = describe_failure(DraftContentError(2))
     assert failure.code == "draft_content_invalid"
     assert failure.stage == "write"
-    assert "requesting more slides" in failure.message
+    assert "could not be validated" in failure.message
+    assert "job reference" in failure.message
 
 
 @pytest.mark.parametrize("count", [3, 6, 10])
