@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field, create_model, model_validator
 from app.config import Settings
 from app.core.deck_schema import ClosingSlide, Deck, DraftSlide, TitleSlide
 from app.core.errors import DraftContentError, StructuredOutputError
+from app.core.visuals import content_kind, source_units
 from app.llm.checkpoints import reject_checkpoint
 from app.llm.factory import create_llm_client
 from app.llm.structured import StructuredGenerator
@@ -22,6 +23,7 @@ from app.pipeline.grounding import (
     unsupported_claim_categories,
     unsupported_specific_claim_categories,
 )
+from app.render.theme import draft_theme_for_topic
 
 log = logging.getLogger(__name__)
 
@@ -131,25 +133,43 @@ def _ground_company_copy(content, prompt):
     if not content.facts:
         raise ValueError("Extract the supplied company facts as verbatim excerpts.")
     grounded = [[] for _ in content.sections]
-    used = set()
-    for index, section in enumerate(content.sections):
-        ids = section.source_fact_ids or ([index] if index < len(content.facts) else [])
-        for fact_id in ids:
-            if not 0 <= fact_id < len(content.facts):
-                raise ValueError("Source fact references must point to an extracted fact.")
-            points = _source_points(content.facts[fact_id])
-            if fact_id not in used and len(grounded[index]) + len(points) <= 4:
-                grounded[index].extend(points)
-                used.add(fact_id)
+    assigned = [[] for _ in content.sections]
+    for section in content.sections:
+        if any(not 0 <= fact_id < len(content.facts) for fact_id in section.source_fact_ids):
+            raise ValueError("Source fact references must point to an extracted fact.")
     for fact_id, fact in enumerate(content.facts):
-        if fact_id in used:
-            continue
-        points = _source_points(fact)
-        target = next((p for p in grounded if len(p) + len(points) <= 4), None)
-        if target is None:
-            raise ValueError("Request more slides to preserve all the supplied details.")
-        target.extend(points)
-    for section, points in zip(content.sections, grounded):
+        for unit in source_units(fact):
+            points = _source_points(unit)
+            kind = content_kind(unit)
+            available = [i for i, values in enumerate(grounded) if len(values) + len(points) <= 4]
+            if not available:
+                raise ValueError("Request more slides to preserve all the supplied details.")
+            # Match actual source content to the section topic before falling back
+            # to model references or unused sections. Never drop a source unit.
+            target = min(
+                available,
+                key=lambda i: (
+                    bool(grounded[i]),
+                    not (kind and content_kind(content.sections[i].title) == kind),
+                    fact_id not in content.sections[i].source_fact_ids,
+                    len(grounded[i]),
+                    i,
+                ),
+            )
+            grounded[target].extend(points)
+            assigned[target].append(fact_id)
+    role_titles = {
+        "collection": "Product range",
+        "personalization": "Personalization",
+        "launch": "Launch plan",
+        "growth": "Growth plan",
+    }
+    for section, points, ids in zip(content.sections, grounded, assigned):
+        if points:
+            kind = content_kind(" ".join(points))
+            if kind and content_kind(section.title) != kind:
+                section.title = role_titles[kind]
+            section.source_fact_ids = list(dict.fromkeys(ids))
         if not points:
             points = [
                 p
@@ -162,6 +182,13 @@ def _ground_company_copy(content, prompt):
         section.points = points or [
             "Proposed next step: discuss the supplied details with your team.",
             "Add verified information to develop this part of the presentation.",
+        ]
+    roles = [content_kind(" ".join(section.points)) for section in content.sections]
+    if len(roles) == 4 and set(roles) == set(role_titles):
+        order = {kind: i for i, kind in enumerate(role_titles)}
+        content.sections = [
+            section
+            for _, section in sorted(zip(roles, content.sections), key=lambda pair: order[pair[0]])
         ]
     for name in ("title", "subtitle", "closing_title", "closing_text"):
         value = getattr(content, name)
@@ -312,7 +339,7 @@ def generate_draft_deck(
         )
         return Deck(
             title=title,
-            theme="reference" if theme == "default" else theme,
+            theme=draft_theme_for_topic(prompt) if theme == "default" else theme,
             slides=slides,
             design_version="draft-v1",
         )

@@ -337,6 +337,10 @@ def _points(c, points):
 
 
 def render(prs, data, theme, *, brand, number, deck=None):
+    if theme.name.startswith("studio"):
+        from app.render.studio import render as render_studio
+
+        return render_studio(prs, data, theme, brand=brand, number=number, deck=deck)
     slide = new_slide(prs, theme)
     c = Canvas(slide, theme)
     cover = data.layout == "title"

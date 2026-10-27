@@ -141,8 +141,42 @@ BOLD_DARK = replace(
     on_primary=rgb("171B29"),
 )
 
+STUDIO = replace(
+    REFERENCE,
+    name="studio",
+    bg=rgb("F5F3FC"),
+    primary=rgb("2B2548"),
+    text=rgb("302B41"),
+    muted=rgb("625B74"),
+    accent=rgb("6545A0"),
+    chart_colors=tuple(map(rgb, ("7653B5", "CC5B74", "278B86", "DAA14C", "5679C2"))),
+)
+STUDIO_BEAUTY = replace(
+    STUDIO,
+    name="studio-beauty",
+    bg=rgb("FFF7F1"),
+    primary=rgb("47263F"),
+    text=rgb("392A37"),
+    muted=rgb("705B69"),
+    accent=rgb("A3365D"),
+    chart_colors=tuple(map(rgb, ("B95376", "8862B4", "278B86", "D99349", "5D7BB9"))),
+)
+
 THEMES = {t.name: t for t in (FINTECH, BLUSH, HEALTH, EDTECH, CLIMATE, BOLD_DARK)}
-THEMES.update({"default": DEFAULT, "reference": REFERENCE, "blush": BLUSH, "soft": BLUSH})
+THEMES.update(
+    {
+        "default": DEFAULT,
+        "reference": REFERENCE,
+        "blush": BLUSH,
+        "soft": BLUSH,
+        "studio": STUDIO,
+        "studio-beauty": STUDIO_BEAUTY,
+    }
+)
+
+
+def draft_theme_for_topic(topic):
+    return "studio-beauty" if theme_for_topic(topic) == "beauty" else "studio"
 
 
 def theme_for_topic(topic: str) -> str:

@@ -7,7 +7,9 @@ SlideGen turns a brief into an editable PowerPoint **draft**. The web app and CL
 - One request generates the content for the whole deck, with at most two structured-output attempts. Drafts default to six slides and support explicit counts from three to ten.
 - Company facts are inserted from verified excerpts of the brief rather than model-written marketing claims. Supplied numbers and percentages are checked. General-topic copy still needs a human accuracy review.
 - Export checks text fit, fonts, contrast, bounds and the actual saved PowerPoint. These checks do not require photo downloads, LibreOffice or an AI vision model.
-- Draft design follows the supplied demos: Calibri, light gray backgrounds, navy headings, white panels and green diagram accents. Explicit product, personalization, launch and growth lists become editable visual layouts while their complete source wording stays visible. Other content uses measured columns or statement layouts. Growth diagrams preserve supplied activities without inventing quarterly dates. The default theme is `reference`; explicit theme choices are still respected.
+- Drafts default to a fuller studio design with blush, lavender, teal, gold and blue accents, tinted panels, larger editable product figures, a personalization map and a growth roadmap. Beauty prompts use the `studio-beauty` palette; other topics use `studio`. Explicit `reference` and other theme choices remain available. Source wording stays visible, and diagrams preserve supplied activities without inventing quarterly dates.
+- Explicit label/value pairs with consistent units become editable native PowerPoint charts. A brief without performance numbers can include a chart counting the supplied products and activities, clearly labelled as counts from the brief. The renderer never fabricates growth curves, revenue or market shares to fill a slide.
+- Compound product and personalization facts are separated into distinct source excerpts when possible. Sections are matched to their factual topic so launch content appears under its own heading and compound facts can fill an otherwise generic section.
 - The file is labelled **Draft** and becomes downloadable when those checks pass. It has not received AI visual approval.
 - **Optional: review slide design** starts a separate, single-pass review after the draft is available. Its score, failure or timeout cannot remove the draft or occupy the generation worker. It requires LibreOffice and the configured vision model.
 - Draft jobs have a maximum ten-minute lifetime including queue time, even across deploys. The default web mode accepts at most three active jobs. Provider errors fail clearly instead of leaving an endless spinner.
@@ -29,6 +31,8 @@ The browser retains the active job and latest completed draft for the current br
 
 Source checks verify supplied excerpts and catch common unsupported numeric, contact and commercial claims; they are not independent fact checking. Review draft details before sharing. No draft or low-scoring review is represented as an approved client presentation.
 
+To preview the richer design from a saved Blush draft without another AI request, run `python scripts/rich_design_preview.py --input-pptx output.pptx`. It reuses the saved source copy, applies the local source checks, and writes the revised deck and check report to `outputs/qa/vivid-refresh/`. This is a content replay, not a fresh generation. The earlier navy/green fixture remains available through `scripts/draft_design_preview.py`.
+
 ## Editorial generator
 
 The optional editorial pipeline plans an 8–10 slide story, chooses a topic theme, and writes each slide as structured JSON without coordinates. Geometry belongs to the renderer. Six curated themes cover beauty, fintech, health, edtech, climate and bold/dark moods. Beauty uses cream, rose and plum. Body colors meet 4.5:1 contrast on the theme backgrounds.
@@ -43,7 +47,7 @@ Set `PEXELS_API_KEY` and/or `UNSPLASH_ACCESS_KEY` for topic-specific photo searc
 
 For local evaluation, run `python scripts/live_design.py blush --output-dir outputs/qa/blush --resume --checked`, then use `fintech` and `edtech` with separate directories. `--resume` reuses only identical successful local provider requests. `scripts/design_preview.py` exercises the renderer with an authored fixture; it is not evidence of live LLM generation. Application-specific PowerPoint and Google Slides compatibility still requires opening the resulting file in those applications.
 
-The older pipeline remains available only through `SLIDEGEN_DESIGN_PIPELINE=legacy`. Descriptions of four-to-six slides or visible conceptual-workflow notes in the historical sections below describe that legacy pipeline. The default draft renderer now also uses the navy/green demo palette.
+The older pipeline remains available only through `SLIDEGEN_DESIGN_PIPELINE=legacy`. Descriptions of four-to-six slides or visible conceptual-workflow notes in the historical sections below describe that legacy pipeline. The navy/green draft palette remains available as `reference`; fuller studio palettes are now the default.
 
 **Live demo:** [slidegen-edz9.onrender.com](https://slidegen-edz9.onrender.com/)
 
