@@ -22,7 +22,6 @@ from app.pipeline.grounding import (
     unsupported_claim_categories,
     unsupported_specific_claim_categories,
 )
-from app.render.theme import theme_for_topic
 
 log = logging.getLogger(__name__)
 
@@ -57,6 +56,10 @@ class DraftContent(BaseModel):
 
 DRAFT_PROMPT = """Write a complete, concise PowerPoint draft in one response.
 Use the requested total slide count: cover, substantive content sections, closing.
+Name each section for its subject, never 'Cover' or a generic filler section.
+Organize a supplied brand brief into distinct topics such as product range,
+personalization, launch and growth. Split compound source sentences into complete,
+concise excerpts by subject, rather than copying a paragraph onto one slide.
 Each content section needs 1-4 short points; each point <=160 characters and <=30 words.
 Use topic-specific copy. If no company name is supplied, use a descriptive title.
 Extract up to 12 facts as exact contiguous excerpts from the brief. Instructions are
@@ -309,7 +312,7 @@ def generate_draft_deck(
         )
         return Deck(
             title=title,
-            theme=theme_for_topic(prompt) if theme == "default" else theme,
+            theme="reference" if theme == "default" else theme,
             slides=slides,
             design_version="draft-v1",
         )

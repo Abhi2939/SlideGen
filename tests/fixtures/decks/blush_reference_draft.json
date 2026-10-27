@@ -1,0 +1,40 @@
+{
+  "title": "Blush",
+  "theme": "reference",
+  "design_version": "draft-v1",
+  "slides": [
+    {
+      "layout": "title",
+      "title": "Blush",
+      "subtitle": "Custom beauty, blended exclusively for you"
+    },
+    {
+      "layout": "draft_content",
+      "title": "The Blush collection",
+      "points": ["Blush is a custom beauty brand offering foundation, lipstick, and skincare"]
+    },
+    {
+      "layout": "draft_content",
+      "title": "A blend that is yours",
+      "points": [
+        "Blended exclusively for your skin tone, undertone, and style,",
+        "so you never get the wrong shade."
+      ]
+    },
+    {
+      "layout": "draft_content",
+      "title": "Launch focus",
+      "points": ["Our launch will focus on a shade-matching quiz, waitlist, and creator-led demos"]
+    },
+    {
+      "layout": "draft_content",
+      "title": "Quarterly growth",
+      "points": ["followed by quarterly growth through UGC, subscriptions, new product lines, pop-ups, and festive scaling."]
+    },
+    {
+      "layout": "closing",
+      "title": "The Blush promise",
+      "subtitle": "You never get the wrong shade."
+    }
+  ]
+}

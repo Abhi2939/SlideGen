@@ -62,7 +62,7 @@ def build_deck(deck: Deck, output_path, strict: bool = False) -> Path:
                 if deck.design_version == "draft-v1":
                     from app.render.draft import render
 
-                    slide = render(prs, data, theme, brand=deck.title, number=index + 1)
+                    slide = render(prs, data, theme, brand=deck.title, number=index + 1, deck=deck)
                 elif data.layout == "editorial":
                     from app.render.editorial import render
 

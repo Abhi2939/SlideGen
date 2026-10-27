@@ -82,6 +82,15 @@ EDITORIAL_TYPE = TypeScale(
     stat=Pt(72),
 )
 
+# The demo references use Calibri, navy headings, white panels and green diagrams.
+REFERENCE = replace(
+    DEFAULT,
+    name="reference",
+    accent=rgb("263FB8"),
+    muted=rgb("596575"),
+    type=TypeScale(caption=Pt(14)),
+)
+
 
 def contrast(first, second):
     def luminance(color):
@@ -133,7 +142,7 @@ BOLD_DARK = replace(
 )
 
 THEMES = {t.name: t for t in (FINTECH, BLUSH, HEALTH, EDTECH, CLIMATE, BOLD_DARK)}
-THEMES.update({"default": DEFAULT, "blush": BLUSH, "soft": BLUSH})
+THEMES.update({"default": DEFAULT, "reference": REFERENCE, "blush": BLUSH, "soft": BLUSH})
 
 
 def theme_for_topic(topic: str) -> str:

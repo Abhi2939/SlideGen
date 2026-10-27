@@ -7,6 +7,7 @@ SlideGen turns a brief into an editable PowerPoint **draft**. The web app and CL
 - One request generates the content for the whole deck, with at most two structured-output attempts. Drafts default to six slides and support explicit counts from three to ten.
 - Company facts are inserted from verified excerpts of the brief rather than model-written marketing claims. Supplied numbers and percentages are checked. General-topic copy still needs a human accuracy review.
 - Export checks text fit, fonts, contrast, bounds and the actual saved PowerPoint. These checks do not require photo downloads, LibreOffice or an AI vision model.
+- Draft design follows the supplied demos: Calibri, light gray backgrounds, navy headings, white panels and green diagram accents. Explicit product, personalization, launch and growth lists become editable visual layouts while their complete source wording stays visible. Other content uses measured columns or statement layouts. Growth diagrams preserve supplied activities without inventing quarterly dates. The default theme is `reference`; explicit theme choices are still respected.
 - The file is labelled **Draft** and becomes downloadable when those checks pass. It has not received AI visual approval.
 - **Optional: review slide design** starts a separate, single-pass review after the draft is available. Its score, failure or timeout cannot remove the draft or occupy the generation worker. It requires LibreOffice and the configured vision model.
 - Draft jobs have a maximum ten-minute lifetime including queue time, even across deploys. The default web mode accepts at most three active jobs. Provider errors fail clearly instead of leaving an endless spinner.
@@ -42,7 +43,7 @@ Set `PEXELS_API_KEY` and/or `UNSPLASH_ACCESS_KEY` for topic-specific photo searc
 
 For local evaluation, run `python scripts/live_design.py blush --output-dir outputs/qa/blush --resume --checked`, then use `fintech` and `edtech` with separate directories. `--resume` reuses only identical successful local provider requests. `scripts/design_preview.py` exercises the renderer with an authored fixture; it is not evidence of live LLM generation. Application-specific PowerPoint and Google Slides compatibility still requires opening the resulting file in those applications.
 
-The older pipeline remains available only through `SLIDEGEN_DESIGN_PIPELINE=legacy`. Descriptions of four-to-six slides, navy/green beauty styling, or visible conceptual-workflow notes in the historical sections below describe that legacy pipeline.
+The older pipeline remains available only through `SLIDEGEN_DESIGN_PIPELINE=legacy`. Descriptions of four-to-six slides or visible conceptual-workflow notes in the historical sections below describe that legacy pipeline. The default draft renderer now also uses the navy/green demo palette.
 
 **Live demo:** [slidegen-edz9.onrender.com](https://slidegen-edz9.onrender.com/)
 
